@@ -133,6 +133,20 @@ provisioning block. The Terraform project **does not reformat disks**; separate
 datastores are a **post-provision verification/configuration step**. This is
 not RAID 1 and does not make a single host highly available.
 
+To enable SSH on an ESXi host and import your Mac's existing
+`~/.ssh/id_ed25519.pub` for root without committing the key to GitHub:
+
+```bash
+brew install govc
+bash scripts/install_esxi_ssh_key.sh "$(terraform output -raw esxi_public_ip)"
+```
+
+phoenixNAP disables SSH on ESXi by default. The helper uses authenticated
+vSphere HTTPS to start `TSM-SSH`, asks for the root password, then adds the
+public key on the host. It temporarily skips self-signed HTTPS verification
+for this evaluation lab and opens SSH on the public interface; use only when
+needed. Re-run it against the **replacement host's IP** after rebuilding.
+
 ## 5. Deploy the vCenter Appliance — separate gated stage
 
 The VCSA deployment is intentionally **not** part of `terraform apply`.
