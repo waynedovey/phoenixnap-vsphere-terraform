@@ -11,5 +11,6 @@ confirm_esxi_image             = false
 confirm_previous_server_retired = false
 maximum_hourly_usd             = 0.50
 
-# If the public IP hourly catalog is ambiguous, use the correct IPv4 SKU:
-# public_ipv4_sku = "..."
+# The approved GLOBAL hourly /29 range SKU is pinned by default:
+# public_ipv4_sku = "W0I2-DIVY-ZJVP"
+# The 0.028 USD/hour quote covers the ENTIRE /29 range, not each IP.
