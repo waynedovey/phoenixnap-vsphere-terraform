@@ -34,9 +34,11 @@ from legitimate Broadcom media. Nothing is automatically applied.
 
 - A **rotated** phoenixNAP client ID and secret with least-privilege BMC
   access. Never reuse credentials pasted into chat, and never commit them.
-- A trusted static **public source IP/CIDR** for ESXi management, such as
-  `198.51.100.10/32`. If your home/work IP changes, an authorized source
-  must update the allowlist first.
+- **Security exception:** ESXi HTTPS management is intentionally open to any
+  public IPv4 address (`0.0.0.0/0`) for this evaluation lab. Anyone on the
+  Internet can reach the login page. Use strong unique credentials, keep ESXi
+  patched, monitor authentication attempts, and restrict access before real use.
+  A VPN or trusted-source allowlist is strongly recommended for production.
 - Approval for the host's **hourly spend** and an **additional IPv4 block**.
   This configuration requests the smallest supported block automatically;
   additional charges depend on phoenixNAP's billing schedule.
@@ -44,8 +46,8 @@ from legitimate Broadcom media. Nothing is automatically applied.
   access; this repository contains no VMware software or license keys.
 - An actual network design for the vCenter **guest VM**: static reachable IP,
   subnet prefix, gateway, DNS with forward/reverse resolution, NTP, the ESXi
-  port group and route to your admin workstation. **The ESXi IP allowlist
-  does not protect a vCenter VM's own interface**; separately restrict that
+  port group and route to your admin workstation. **The ESXi management
+  setting does not protect a vCenter VM's own interface**; separately restrict that
   VM with a firewall/VPN/private-network design.
 - Written confirmation of VCSA-on-BMC support and the intended vCenter
   edition/evaluation rights.
@@ -89,7 +91,9 @@ cp terraform.tfvars.example terraform.tfvars
 
 Edit the ignored `terraform.tfvars`:
 
-1. Replace `203.0.113.10/32` with **your real trusted public source IP**.
+1. No management IP lookup is required. ESXi HTTPS is open to all IPv4 sources
+   by default. If you previously created a `terraform.tfvars` file, **remove
+   any old `management_allowed_cidrs` line** to use the new default.
 2. Check the exact ESXi image with phoenixNAP.
 3. Review the IPv4 block charge and the US$0.40/hour host charge.
 4. Only when ready for an **approval review**, change the safety variables:
@@ -108,7 +112,7 @@ terraform show provision.tfplan
 ```
 
 Inspect the planned `pnap_server.esxi[0]`, the network, datastores, pricing,
-location, OS and allowlist. The plan file is ignored because it may contain
+location, OS and unrestricted management CIDR. The plan file is ignored because it may contain
 sensitive data.
 
 **Only after your separate explicit approval** may an operator execute:
@@ -133,7 +137,7 @@ storage/backups; `.gitignore` is not a security boundary.
 
 ## 4. Verify host and the two independent NVMe devices
 
-Using the protected ESXi Host Client / BMC remote console:
+Using the ESXi Host Client (publicly accessible in this lab) or BMC remote console:
 
 1. Confirm hardware type, 128 GB RAM, ESXi exact update/build and license mode.
 2. Confirm both physical NVMe disks are visible, and identify which physical
