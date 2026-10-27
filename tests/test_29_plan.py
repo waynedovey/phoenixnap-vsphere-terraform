@@ -1,0 +1,63 @@
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from check_29_plan import validate  # noqa: E402
+
+
+def plan(resources, server="0.40", per_ip="0.0035", total="0.428"):
+    return {
+        "resource_changes": [
+            {"address": name, "change": {"actions": actions, "before": {"delete_ip_blocks": True}}}
+            for name, actions in resources.items()
+        ],
+        "output_changes": {
+            "quoted_server_usd_per_hour": {"after": server},
+            "quoted_ipv4_usd_per_address_hour": {"after": per_ip},
+            "quoted_total_usd_per_hour": {"after": total},
+        },
+    }
+
+
+class PlanSafetyTests(unittest.TestCase):
+    old_server = "pnap_server.esxi[0]"
+    new_block = "pnap_ip_block.lab_public_ipv4[0]"
+
+    def test_retire_only_server(self):
+        validate(plan({self.old_server: ["delete"]}), "retire")
+
+    def test_retire_rejects_other_deletions(self):
+        with self.assertRaises(ValueError):
+            validate(plan({self.old_server: ["delete"], "pnap_ip_block.other": ["delete"]}), "retire")
+
+    def test_retire_requires_old_ip_cleanup(self):
+        p = plan({self.old_server: ["delete"]})
+        p["resource_changes"][0]["change"]["before"]["delete_ip_blocks"] = False
+        with self.assertRaises(ValueError):
+            validate(p, "retire")
+
+    def test_create_within_budget(self):
+        validate(plan({self.old_server: ["create"], self.new_block: ["create"]}), "create")
+
+    def test_create_rejects_unexpected_replacement(self):
+        with self.assertRaises(ValueError):
+            validate(plan({self.old_server: ["delete", "create"], self.new_block: ["create"]}), "create")
+
+    def test_create_rejects_over_budget(self):
+        with self.assertRaises(ValueError):
+            validate(plan({self.old_server: ["create"], self.new_block: ["create"]}, total="0.501"), "create")
+
+    def test_create_rejects_bad_unit_math(self):
+        with self.assertRaises(ValueError):
+            validate(plan({self.old_server: ["create"], self.new_block: ["create"]}, total="0.400"), "create")
+
+    def test_create_rejects_missing_live_quote(self):
+        p = plan({self.old_server: ["create"], self.new_block: ["create"]})
+        del p["output_changes"]["quoted_ipv4_usd_per_address_hour"]
+        with self.assertRaises(ValueError):
+            validate(p, "create")
+
+
+if __name__ == "__main__":
+    unittest.main()
