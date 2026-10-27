@@ -5,9 +5,32 @@ variable "enable_provisioning" {
 }
 
 variable "approve_hourly_costs" {
-  description = "Acknowledge estimated US$0.414/hour for host plus default public IP, versus a US$0.50/hour total budget; verify live charges."
+  description = "Approve the account-specific live hourly quote, including all eight /29 public IPv4 addresses."
   type        = bool
   default     = false
+}
+
+variable "confirm_previous_server_retired" {
+  description = "Set true only after destroying the old server and verifying its former /30 IP allocation has been released."
+  type        = bool
+  default     = false
+}
+
+variable "maximum_hourly_usd" {
+  description = "Hard precondition for server plus /29 IPv4 block hourly rate; may not exceed the agreed US$0.50/hour."
+  type        = number
+  default     = 0.50
+
+  validation {
+    condition     = var.maximum_hourly_usd > 0 && var.maximum_hourly_usd <= 0.50
+    error_message = "The maximum may be reduced but cannot exceed US$0.50/hour."
+  }
+}
+
+variable "public_ipv4_sku" {
+  description = "Optional exact Seattle public IPv4 billing SKU when more than one hourly IP rate is returned; leave null when unambiguous."
+  type        = string
+  default     = null
 }
 
 variable "confirm_esxi_image" {
@@ -28,7 +51,7 @@ variable "hostname" {
 }
 
 variable "management_allowed_cidrs" {
-  description = "ESXi management source CIDRs. Defaults to unrestricted IPv4 access by explicit user choice; restrict for production."
+  description = "Source CIDRs allowed to reach ESXi management HTTPS; unrestricted 0.0.0.0/0 is the user's lab choice."
   type        = list(string)
   default     = ["0.0.0.0/0"]
 
