@@ -41,13 +41,26 @@ confirm_esxi_image = true
 Keep `confirm_previous_server_retired` at its default `false` until the
 old server and `/30` have been removed.
 
-## 2. Retire the original /30-backed host
+## 2. Obtain the live /29 quote before destroying the old host
+
+```bash
+bash scripts/rebuild_29.sh quote
+```
+
+This creates **only a temporary Terraform plan** to read the live pricing
+API. It checks the calculated quote and then discards the plan. Because the
+old host is still present, Terraform might preview networking/replacement
+changes; **do not apply this preview plan**. This operation makes no billed
+changes.
+
+## 3. Retire the original /30-backed host
 
 ```bash
 bash scripts/rebuild_29.sh retire
 ```
 
-The script checks the current Terraform state ID, creates a **destroy-only
+The script **rechecks the live /29 quote before deleting anything**. It then
+checks the current Terraform state ID, creates a **destroy-only
 plan** for `pnap_server.esxi[0]`, confirms no other resource will change,
 displays the plan, and requires you to type the exact server ID to approve.
 It applies only after that confirmation. Verify the plan shows the old
@@ -57,7 +70,7 @@ After completion, **check the phoenixNAP BMC portal** that both the old
 server and its old `/30` allocation are deleted; IP allocations can incur
 charges even when detached.
 
-## 3. Purchase /29 and create replacement ESXi
+## 4. Purchase /29 and create replacement ESXi
 
 ```bash
 bash scripts/rebuild_29.sh create
@@ -85,7 +98,7 @@ the plan fails closed. Inspect the Billing API's Seattle PUBLIC_IP SKUs,
 identify the IPv4 SKU, and set `public_ipv4_sku` in `terraform.tfvars`.
 Do not guess the SKU or disable the cost guard.
 
-## 4. Configure vCenter only after ESXi is online
+## 5. Configure vCenter only after ESXi is online
 
 ```bash
 terraform output esxi_public_ip
