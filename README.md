@@ -102,8 +102,11 @@ bash scripts/rebuild_29.sh retire
 bash scripts/rebuild_29.sh create
 ```
 
-The quote step checks live US$0.50/hour pricing without applying its preview.
-The retire step rechecks the quote, then confirms a plan that only destroys the original
+The quote step now uses an isolated, **data-only** Terraform configuration
+(`quote/`) and prints all PUBLIC_IP SKUs, including GLOBAL pricing, without
+creating or modifying resources. **Pause after quote** until the exact billed
+IPv4 SKU and price have been verified and the main cost guard updated.
+The retire step then rechecks the strict priced plan and confirms a plan that only destroys the original
 server (with `delete_ip_blocks=true`). The second fetches the live Seattle
 server and PUBLIC_IP hourly rates, requires a total at or below US$0.50/hour,
 confirms the plan creates only one /29 and one ESXi host, and asks for explicit
