@@ -17,7 +17,8 @@ resource "pnap_server" "esxi" {
     }
   }
 
-  # Do not open the ESXi management interface to the Internet.
+  # WARNING: unrestricted ESXi HTTPS management, explicitly selected for this lab.
+  # The login is reachable from ANY public IPv4 address. Avoid production use.
   management_access_allowed_ips = var.management_allowed_cidrs
 
   # ESXi is installed by phoenixNAP. This names the initial datastore only;
@@ -31,7 +32,7 @@ resource "pnap_server" "esxi" {
   lifecycle {
     precondition {
       condition     = length(var.management_allowed_cidrs) > 0
-      error_message = "Specify at least one trusted management CIDR before provisioning."
+      error_message = "Specify at least one management CIDR; 0.0.0.0/0 allows all IPv4 sources."
     }
     precondition {
       condition     = var.confirm_esxi_image
