@@ -4,8 +4,8 @@ output "esxi_server_id" {
 }
 
 output "esxi_public_ip" {
-  description = "First public management IP (null while disabled or unassigned)."
-  value       = try(pnap_server.esxi[0].public_ip_addresses[0], null)
+  description = "First public IP in sorted order (null while disabled or unassigned)."
+  value       = try(sort(tolist(pnap_server.esxi[0].public_ip_addresses))[0], null)
 }
 
 output "esxi_management_url" {
