@@ -1,8 +1,8 @@
-# Copy to terraform.tfvars and enter your own trusted *public* source IP.
-# The documentation address below is intentionally not your real IP.
-hostname                 = "esxi-01"
-management_allowed_cidrs = ["203.0.113.10/32"]
-initial_datastore_name   = "datastore1"
+# Copy to terraform.tfvars. Management HTTPS is globally reachable by default
+# (0.0.0.0/0), as explicitly chosen for this evaluation lab.
+# To restrict it later, set management_allowed_cidrs to trusted public CIDRs.
+hostname               = "esxi-01"
+initial_datastore_name = "datastore1"
 
 # SAFETY GATES: these must remain false until you have checked the README,
 # confirmed exact ESXi image/version and explicitly approved billed resources.
