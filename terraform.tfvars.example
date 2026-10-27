@@ -1,12 +1,15 @@
-# Copy to terraform.tfvars. Management HTTPS is globally reachable by default
-# (0.0.0.0/0), as explicitly chosen for this evaluation lab.
-# To restrict it later, set management_allowed_cidrs to trusted public CIDRs.
+# Copy to terraform.tfvars. Your lab allows unrestricted ESXi management
+# HTTPS by default, by explicit choice. Restrict it for real deployments.
 hostname               = "esxi-01"
 initial_datastore_name = "datastore1"
 
-# SAFETY GATES: leave false until checking current prices against the
-# US$0.50/hour total budget, confirming the ESXi build and approving billing.
-# Terraform cannot enforce a real-time billing cap.
-enable_provisioning = false
-approve_hourly_costs = false
-confirm_esxi_image   = false
+# SAFETY GATES: no new /29/server purchase until the previous ESXi host and
+# its /30 block are deleted and the live SEA quote passes US$0.50/hour.
+enable_provisioning            = false
+approve_hourly_costs           = false
+confirm_esxi_image             = false
+confirm_previous_server_retired = false
+maximum_hourly_usd             = 0.50
+
+# If the public IP hourly catalog is ambiguous, use the correct IPv4 SKU:
+# public_ipv4_sku = "..."
