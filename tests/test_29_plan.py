@@ -58,6 +58,13 @@ class PlanSafetyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate(p, "create")
 
+    def test_quote_allows_preview_of_old_host_change_without_applying(self):
+        validate(plan({self.old_server: ["update"], self.new_block: ["create"]}), "quote")
+
+    def test_quote_rejects_over_budget_before_retirement(self):
+        with self.assertRaises(ValueError):
+            validate(plan({self.old_server: ["update"]}, total="0.501"), "quote")
+
 
 if __name__ == "__main__":
     unittest.main()
