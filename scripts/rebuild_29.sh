@@ -6,8 +6,8 @@ OLD_ESXI_ID="6ae0430e5f894da540fb7126"
 OLD_ESXI_IP="131.153.165.146"
 MODE="${1:-}"
 
-if [[ "$MODE" != "quote" && "$MODE" != "retire" && "$MODE" != "create" ]]; then
-  echo "Usage: bash scripts/rebuild_29.sh quote|retire|create" >&2
+if [[ "$MODE" != "quote" && "$MODE" != "verify" && "$MODE" != "retire" && "$MODE" != "create" ]]; then
+  echo "Usage: bash scripts/rebuild_29.sh quote|verify|retire|create" >&2
   exit 2
 fi
 
@@ -37,10 +37,17 @@ quote_only() {
   terraform plan \
     -var='enable_provisioning=true' \
     -var='confirm_previous_server_retired=true' \
+    -var='approve_hourly_costs=true' \
     -out="$QUOTE_FILE"
   python3 scripts/check_29_plan.py quote "$QUOTE_FILE"
   echo "Quote passed. Any server/network changes shown above are a PREVIEW ONLY."
 }
+
+if [[ "$MODE" == "verify" ]]; then
+  quote_only
+  echo "Verified: pricing and approved /29 SKU passed; no Terraform plan was applied."
+  exit 0
+fi
 
 if [[ "$MODE" == "retire" ]]; then
   # Price-check the future /29 before permanently deleting the old host.
@@ -79,6 +86,7 @@ else
   terraform plan \
     -var='enable_provisioning=true' \
     -var='confirm_previous_server_retired=true' \
+    -var='approve_hourly_costs=true' \
     -out="$PLAN_FILE"
   python3 scripts/check_29_plan.py create "$PLAN_FILE"
   terraform show "$PLAN_FILE"
