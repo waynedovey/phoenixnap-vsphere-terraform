@@ -55,7 +55,8 @@ from legitimate Broadcom media. Nothing is automatically applied.
 On your Mac/Linux workstation, install Terraform 1.6+ and Python 3.9+, then:
 
 ```bash
-cd phoenixnap-vsphere
+git clone https://github.com/waynedovey/phoenixnap-vsphere-terraform.git
+cd phoenixnap-vsphere-terraform
 python3 -m unittest discover -s tests -v
 terraform fmt -check
 terraform init -backend=false
