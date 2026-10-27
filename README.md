@@ -14,8 +14,10 @@ from legitimate Broadcom media. Nothing is automatically applied.
 | Storage | 2 x 1 TB NVMe; **no RAID requested** |
 | Network | 20 Gbps bonded as quoted |
 | OS | VMware ESXi 8 (requested **8.0U2**) |
-| Billing | Hourly, quoted **US$0.40/hour** |
-| Estimated 30-day host cost | **US$288** before IP, bandwidth, VMware or taxes |
+| Server billing | Hourly, quoted **US$0.40/hour** |
+| Default ESXi public IPv4 block | /30, estimated **US$0.014/hour** |
+| Estimated total | **US$0.414/hour**, or **US$298.08 for 30 days** |
+| Maximum budget | **US$0.50/hour total** (operator review; not automatically enforced) |
 | ESXi name | `esxi-01` |
 | vCenter | Single VCSA 8 VM, evaluation mode, deployed later |
 
@@ -39,9 +41,12 @@ from legitimate Broadcom media. Nothing is automatically applied.
   Internet can reach the login page. Use strong unique credentials, keep ESXi
   patched, monitor authentication attempts, and restrict access before real use.
   A VPN or trusted-source allowlist is strongly recommended for production.
-- Approval for the host's **hourly spend** and an **additional IPv4 block**.
-  This configuration requests the smallest supported block automatically;
-  additional charges depend on phoenixNAP's billing schedule.
+- **US$0.50/hour total budget** for the host plus the default public IPv4
+  block. The published server price is US$0.40/hour and the estimated /30 block
+  is US$0.014/hour. The provider/API may bill taxes, excess bandwidth, or
+  software costs separately. **Terraform does not enforce a live spending cap**:
+  verify the current portal/API prices and do not apply if the total exceeds
+  your US$0.50/hour ceiling.
 - A verified **VCSA 8 installer ISO** from your Broadcom entitlement/trial
   access; this repository contains no VMware software or license keys.
 - An actual network design for the vCenter **guest VM**: static reachable IP,
@@ -95,7 +100,7 @@ Edit the ignored `terraform.tfvars`:
    by default. If you previously created a `terraform.tfvars` file, **remove
    any old `management_allowed_cidrs` line** to use the new default.
 2. Check the exact ESXi image with phoenixNAP.
-3. Review the IPv4 block charge and the US$0.40/hour host charge.
+3. Verify the default ESXi /30 IP price and host charge fit your **US$0.50/hour total ceiling**; do not rely on the estimate as a billing guarantee.
 4. Only when ready for an **approval review**, change the safety variables:
 
 ```hcl
@@ -228,7 +233,10 @@ terraform plan -destroy
 
 Do **not** run `terraform destroy` without a separate explicit teardown
 approval. It deprovisions the host and can permanently remove VMs and data.
-Understand the separate IP-block lifecycle and BMC charges.
+Understand the separate IP-block lifecycle and BMC charges. The default
+`delete_ip_blocks = false` means the public IP allocation can survive host
+teardown and continue billing; delete the unused allocation separately after
+explicitly confirming it is no longer needed.
 
 ## Upstream references
 
