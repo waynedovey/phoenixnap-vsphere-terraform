@@ -12,6 +12,19 @@ if [[ "$MODE" != "quote" && "$MODE" != "retire" && "$MODE" != "create" ]]; then
 fi
 
 cd "$(dirname "$0")/.."
+
+# Dedicated read-only pricing root. Its only blocks are data sources and
+# outputs: no billable resources, no root state, no approval preconditions.
+if [[ "$MODE" == "quote" ]]; then
+  echo "Reading public-IP SKUs and pricing across all locations (including GLOBAL)."
+  echo "This configuration has NO managed resources and cannot purchase IPs."
+  terraform -chdir=quote init -backend=false -input=false
+  terraform -chdir=quote validate
+  terraform -chdir=quote plan -input=false -no-color
+  echo "Please share public_ip_catalog and seattle_server_plans before any retire/create action."
+  exit 0
+fi
+
 terraform validate
 
 PLAN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pnap29-${MODE}.XXXXXXXX")"
@@ -28,11 +41,6 @@ quote_only() {
   python3 scripts/check_29_plan.py quote "$QUOTE_FILE"
   echo "Quote passed. Any server/network changes shown above are a PREVIEW ONLY."
 }
-
-if [[ "$MODE" == "quote" ]]; then
-  quote_only
-  exit 0
-fi
 
 if [[ "$MODE" == "retire" ]]; then
   # Price-check the future /29 before permanently deleting the old host.
