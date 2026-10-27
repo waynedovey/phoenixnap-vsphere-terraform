@@ -96,16 +96,19 @@ Follow [REBUILD-29.md](REBUILD-29.md). The two approved steps are:
 ```bash
 terraform init
 terraform validate
+bash scripts/rebuild_29.sh quote   # read-only live price check
 bash scripts/rebuild_29.sh retire
 # Verify in phoenixNAP the old server and /30 allocation are deleted.
 bash scripts/rebuild_29.sh create
 ```
 
-The first step reviews and confirms a plan that only destroys the original
+The quote step checks live US$0.50/hour pricing without applying its preview.
+The retire step rechecks the quote, then confirms a plan that only destroys the original
 server (with `delete_ip_blocks=true`). The second fetches the live Seattle
 server and PUBLIC_IP hourly rates, requires a total at or below US$0.50/hour,
 confirms the plan creates only one /29 and one ESXi host, and asks for explicit
 approval before purchasing. ESXi will receive a new management address.
+
 ## 4. Verify host and the two independent NVMe devices
 
 Using the ESXi Host Client (publicly accessible in this lab) or BMC remote console:
