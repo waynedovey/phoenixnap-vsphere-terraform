@@ -113,6 +113,28 @@ terraform output esxi_management_url
 terraform output seattle_public_ipv4_cidr
 ```
 
+### Enable ESXi SSH and install your Mac's public key (optional)
+
+phoenixNAP deploys ESXi with SSH disabled by default. This repository includes
+a helper that runs **on your Mac**, reads the existing
+`~/.ssh/id_ed25519.pub` locally, starts `TSM-SSH` over the ESXi HTTPS API,
+and appends the key to root's ESXi authorised-keys file. No key or password
+is committed to GitHub.
+
+```bash
+brew install govc
+bash scripts/install_esxi_ssh_key.sh "$(terraform output -raw esxi_public_ip)"
+```
+
+It asks for your ESXi root password and typed confirmation. The helper
+currently uses `GOVC_INSECURE=1` because the lab host has a self-signed
+certificate: this skips TLS certificate verification. Prefer a trusted
+certificate or separately verified fingerprint in non-lab settings.
+Starting SSH opens TCP/22 to networks allowed by ESXi/firewall policy.
+SSH may stop after an ESXi reboot; enabling automatic startup requires an
+additional, explicit service-policy change. Do not leave public SSH enabled
+unless needed for your lab.
+
 The `/29` has eight addresses, **five assignable**. ESXi consumes one;
 choose a separate unused assignable public IP for vCenter and obtain the
 correct prefix, gateway, VLAN/port group and DNS configuration from phoenixNAP.
