@@ -17,7 +17,7 @@ from legitimate Broadcom media. Nothing is automatically applied.
 | Network | 20 Gbps bonded as quoted |
 | OS | VMware ESXi 8 (requested **8.0U2**) |
 | Server billing | Hourly, quoted **US$0.40/hour** |
-| Replacement public IPv4 block | /29, eight billed / five assignable, estimated **US$0.028/hour** |
+| Replacement public IPv4 block | /29, five assignable, account-quoted **US$0.028/hour for the whole range** |
 | Estimated total | **US$0.428/hour**, or **US$308.16 for 30 days** |
 | Maximum budget | **US$0.50/hour total** (creation gated on live quote; not an ongoing spending cap) |
 | ESXi name | `esxi-01` |
@@ -44,8 +44,10 @@ from legitimate Broadcom media. Nothing is automatically applied.
   patched, monitor authentication attempts, and restrict access before real use.
   A VPN or trusted-source allowlist is strongly recommended for production.
 - **US$0.50/hour total budget** for one host and one /29 public IPv4 block.
-  Published prices suggest US$0.428/hour. Creation fails if the live API quote
-  is missing, ambiguous or too high. This is not ongoing billing control and
+  Confirmed catalog SKU `W0I2-DIVY-ZJVP` (`GLOBAL`, `range-29`) is
+  US$0.028/hour **for the complete /29 block**, not each address. Together
+  with the US$0.40/hour server, estimated total is US$0.428/hour.
+  Creation fails if the live API quote is missing, ambiguous or too high. This is not ongoing billing control and
   excludes taxes, overages, licensing and other resources.
 - A verified **VCSA 8 installer ISO** from your Broadcom entitlement/trial
   access; this repository contains no VMware software or license keys.
@@ -96,19 +98,21 @@ Follow [REBUILD-29.md](REBUILD-29.md). The two approved steps are:
 ```bash
 terraform init
 terraform validate
-bash scripts/rebuild_29.sh quote   # read-only live price check
+bash scripts/rebuild_29.sh quote    # optional: print full read-only billing catalog
+bash scripts/rebuild_29.sh verify   # strict SKU and US$0.428/hour check; no apply
+# STOP unless verify succeeds and the old host is ready to be permanently deleted.
 bash scripts/rebuild_29.sh retire
 # Verify in phoenixNAP the old server and /30 allocation are deleted.
 bash scripts/rebuild_29.sh create
 ```
 
-The quote step now uses an isolated, **data-only** Terraform configuration
-(`quote/`) and prints all PUBLIC_IP SKUs, including GLOBAL pricing, without
-creating or modifying resources. **Pause after quote** until the exact billed
-IPv4 SKU and price have been verified and the main cost guard updated.
-The retire step then rechecks the strict priced plan and confirms a plan that only destroys the original
-server (with `delete_ip_blocks=true`). The second fetches the live Seattle
-server and PUBLIC_IP hourly rates, requires a total at or below US$0.50/hour,
+The optional `quote` step reads the billing catalog only.
+`verify` confirms the exact approved GLOBAL /29 range SKU, checks the
+live combined cost under US$0.50/hour, and **never applies** its temporary plan.
+The `retire` step rechecks the same guard and then confirms a destroy-only
+plan for the original server (with `delete_ip_blocks=true`).
+The `create` step requires the approved live server + full /29 range price
+at or below US$0.50/hour,
 confirms the plan creates only one /29 and one ESXi host, and asks for explicit
 approval before purchasing. ESXi will receive a new management address.
 
