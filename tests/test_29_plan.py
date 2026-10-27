@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from check_29_plan import validate  # noqa: E402
 
 
-def plan(resources, server="0.40", per_ip="0.0035", total="0.428"):
+def plan(resources, server="0.40", ip_block="0.028", total="0.428"):
     return {
         "resource_changes": [
             {"address": name, "change": {"actions": actions, "before": {"delete_ip_blocks": True}}}
@@ -14,8 +14,18 @@ def plan(resources, server="0.40", per_ip="0.0035", total="0.428"):
         ],
         "output_changes": {
             "quoted_server_usd_per_hour": {"after": server},
-            "quoted_ipv4_usd_per_address_hour": {"after": per_ip},
+            "quoted_public_ipv4_29_usd_per_hour": {"after": ip_block},
             "quoted_total_usd_per_hour": {"after": total},
+            "quoted_public_ip_skus": {
+                "after": [{
+                    "product_code": "range-29",
+                    "sku": "W0I2-DIVY-ZJVP",
+                    "location": "GLOBAL",
+                    "pricing_model": "HOURLY",
+                    "price_unit": "HOUR",
+                    "rate": ip_block,
+                }],
+            },
         },
     }
 
@@ -54,7 +64,24 @@ class PlanSafetyTests(unittest.TestCase):
 
     def test_create_rejects_missing_live_quote(self):
         p = plan({self.old_server: ["create"], self.new_block: ["create"]})
-        del p["output_changes"]["quoted_ipv4_usd_per_address_hour"]
+        del p["output_changes"]["quoted_public_ipv4_29_usd_per_hour"]
+        with self.assertRaises(ValueError):
+            validate(p, "create")
+
+    def test_create_rejects_wrong_ip_sku(self):
+        p = plan({self.old_server: ["create"], self.new_block: ["create"]})
+        p["output_changes"]["quoted_public_ip_skus"]["after"][0]["sku"] = "UNAPPROVED"
+        with self.assertRaises(ValueError):
+            validate(p, "create")
+
+    def test_create_rejects_missing_sku_catalog(self):
+        p = plan({self.old_server: ["create"], self.new_block: ["create"]})
+        p["output_changes"]["quoted_public_ip_skus"]["after"] = []
+        with self.assertRaises(ValueError):
+            validate(p, "create")
+
+    def test_create_rejects_range_price_counted_eight_times(self):
+        p = plan({self.old_server: ["create"], self.new_block: ["create"]}, total="0.624")
         with self.assertRaises(ValueError):
             validate(p, "create")
 
