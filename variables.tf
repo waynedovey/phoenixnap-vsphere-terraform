@@ -5,7 +5,7 @@ variable "enable_provisioning" {
 }
 
 variable "approve_hourly_costs" {
-  description = "Acknowledge US$0.40/hour quote plus any additional IP/bandwidth/license costs."
+  description = "Acknowledge estimated US$0.414/hour for host plus default public IP, versus a US$0.50/hour total budget; verify live charges."
   type        = bool
   default     = false
 }
