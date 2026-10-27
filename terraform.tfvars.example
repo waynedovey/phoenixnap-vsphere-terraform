@@ -4,8 +4,9 @@
 hostname               = "esxi-01"
 initial_datastore_name = "datastore1"
 
-# SAFETY GATES: these must remain false until you have checked the README,
-# confirmed exact ESXi image/version and explicitly approved billed resources.
+# SAFETY GATES: leave false until checking current prices against the
+# US$0.50/hour total budget, confirming the ESXi build and approving billing.
+# Terraform cannot enforce a real-time billing cap.
 enable_provisioning = false
 approve_hourly_costs = false
 confirm_esxi_image   = false
