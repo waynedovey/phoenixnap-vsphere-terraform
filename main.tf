@@ -18,7 +18,7 @@ resource "pnap_ip_block" "lab_public_ipv4" {
     }
     precondition {
       condition     = local.quote_within_budget
-      error_message = "Seattle server + eight /29 public IPv4 addresses must have unambiguous live hourly rates totaling at most US$0.50/hour. Inspect the provider's pnap_products results; no purchase is permitted."
+      error_message = "Seattle server + one GLOBAL /29 range must have unambiguous live hourly pricing at or below maximum_hourly_usd. No purchase is permitted if the quote fails."
     }
   }
 }
@@ -77,7 +77,7 @@ resource "pnap_server" "esxi" {
     }
     precondition {
       condition     = local.quote_within_budget
-      error_message = "Live Seattle /29 plus server pricing is missing, ambiguous, or exceeds the US$0.50/hour cap."
+      error_message = "Live Seattle server + approved GLOBAL /29 range pricing is missing, ambiguous, or exceeds maximum_hourly_usd."
     }
   }
 }
