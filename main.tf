@@ -10,7 +10,9 @@ resource "pnap_server" "esxi" {
   pricing_model = "HOURLY"
 
   # This requests a public IPv4 allocation, which can have additional charges.
-  network_type = "PUBLIC_AND_PRIVATE"
+  # Remove this lab's purchased IP block when the server is deprovisioned.
+  network_type     = "PUBLIC_AND_PRIVATE"
+  delete_ip_blocks = true
   network_configuration {
     ip_blocks_configuration {
       configuration_type = "PURCHASE_NEW"
