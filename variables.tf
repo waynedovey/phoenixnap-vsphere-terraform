@@ -28,16 +28,16 @@ variable "hostname" {
 }
 
 variable "management_allowed_cidrs" {
-  description = "Your fixed public source IPs, e.g. [\"203.0.113.10/32\"]. Never use 0.0.0.0/0."
+  description = "ESXi management source CIDRs. Defaults to unrestricted IPv4 access by explicit user choice; restrict for production."
   type        = list(string)
-  default     = []
+  default     = ["0.0.0.0/0"]
 
   validation {
     condition = alltrue([
       for cidr in var.management_allowed_cidrs :
-      can(cidrhost(cidr, 0)) && cidr != "0.0.0.0/0" && cidr != "::/0"
+      can(cidrhost(cidr, 0))
     ])
-    error_message = "Every allowlist entry must be a valid, non-global CIDR."
+    error_message = "Every management access entry must be a valid CIDR."
   }
 }
 
