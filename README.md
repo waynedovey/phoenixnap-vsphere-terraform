@@ -1,5 +1,7 @@
 # phoenixNAP VMware vSphere evaluation lab
 
+> **Seattle /29 rebuild:** Read [REBUILD-29.md](REBUILD-29.md) for the operator-approved replacement of server `6ae0430e5f894da540fb7126`. Live Seattle pricing is checked against US$0.50/hour before the /29 or replacement ESXi is purchased. Updating this repository does not itself delete or create anything.
+
 Terraform provisions **one ESXi bare-metal host** in Seattle. A separate,
 deliberately gated workflow deploys **vCenter Server Appliance (VCSA) 8**
 from legitimate Broadcom media. Nothing is automatically applied.
@@ -15,9 +17,9 @@ from legitimate Broadcom media. Nothing is automatically applied.
 | Network | 20 Gbps bonded as quoted |
 | OS | VMware ESXi 8 (requested **8.0U2**) |
 | Server billing | Hourly, quoted **US$0.40/hour** |
-| Default ESXi public IPv4 block | /30, estimated **US$0.014/hour** |
-| Estimated total | **US$0.414/hour**, or **US$298.08 for 30 days** |
-| Maximum budget | **US$0.50/hour total** (operator review; not automatically enforced) |
+| Replacement public IPv4 block | /29, eight billed / five assignable, estimated **US$0.028/hour** |
+| Estimated total | **US$0.428/hour**, or **US$308.16 for 30 days** |
+| Maximum budget | **US$0.50/hour total** (creation gated on live quote; not an ongoing spending cap) |
 | ESXi name | `esxi-01` |
 | vCenter | Single VCSA 8 VM, evaluation mode, deployed later |
 
@@ -41,12 +43,10 @@ from legitimate Broadcom media. Nothing is automatically applied.
   Internet can reach the login page. Use strong unique credentials, keep ESXi
   patched, monitor authentication attempts, and restrict access before real use.
   A VPN or trusted-source allowlist is strongly recommended for production.
-- **US$0.50/hour total budget** for the host plus the default public IPv4
-  block. The published server price is US$0.40/hour and the estimated /30 block
-  is US$0.014/hour. The provider/API may bill taxes, excess bandwidth, or
-  software costs separately. **Terraform does not enforce a live spending cap**:
-  verify the current portal/API prices and do not apply if the total exceeds
-  your US$0.50/hour ceiling.
+- **US$0.50/hour total budget** for one host and one /29 public IPv4 block.
+  Published prices suggest US$0.428/hour. Creation fails if the live API quote
+  is missing, ambiguous or too high. This is not ongoing billing control and
+  excludes taxes, overages, licensing and other resources.
 - A verified **VCSA 8 installer ISO** from your Broadcom entitlement/trial
   access; this repository contains no VMware software or license keys.
 - An actual network design for the vCenter **guest VM**: static reachable IP,
@@ -88,58 +88,24 @@ These lines illustrate names **only**: do not paste real secrets into shell
 history, Git, issue reports, terminal recordings or CI logs. Prefer your
 password manager's environment injection and a short-lived shell.
 
-## 3. Prepare a billable plan — do not apply yet
+## 3. Quote and rebuild with the Seattle /29
+
+**Do not run a direct `terraform apply` against the existing /30-backed server.**
+Follow [REBUILD-29.md](REBUILD-29.md). The two approved steps are:
 
 ```bash
-cp terraform.tfvars.example terraform.tfvars
+terraform init
+terraform validate
+bash scripts/rebuild_29.sh retire
+# Verify in phoenixNAP the old server and /30 allocation are deleted.
+bash scripts/rebuild_29.sh create
 ```
 
-Edit the ignored `terraform.tfvars`:
-
-1. No management IP lookup is required. ESXi HTTPS is open to all IPv4 sources
-   by default. If you previously created a `terraform.tfvars` file, **remove
-   any old `management_allowed_cidrs` line** to use the new default.
-2. Check the exact ESXi image with phoenixNAP.
-3. Verify the default ESXi /30 IP price and host charge fit your **US$0.50/hour total ceiling**; do not rely on the estimate as a billing guarantee.
-4. Only when ready for an **approval review**, change the safety variables:
-
-```hcl
-enable_provisioning  = true
-confirm_esxi_image   = true
-approve_hourly_costs = true
-```
-
-Now inspect the **plan**, which does not create anything:
-
-```bash
-terraform plan -out=provision.tfplan
-terraform show provision.tfplan
-```
-
-Inspect the planned `pnap_server.esxi[0]`, the network, datastores, pricing,
-location, OS and unrestricted management CIDR. The plan file is ignored because it may contain
-sensitive data.
-
-**Only after your separate explicit approval** may an operator execute:
-
-```bash
-terraform apply provision.tfplan
-```
-
-That action requests the server and its public IPv4 allocation and starts
-billing. **Do not run it merely to test syntax.** After provisioning:
-
-```bash
-terraform output esxi_server_id
-terraform output esxi_public_ip
-terraform output esxi_management_url
-```
-
-Record the initial ESXi root password through a protected channel and rotate
-it at first login. The phoenixNAP API may return that password only once, and
-**Terraform state can contain it**. Use encrypted restricted-access state
-storage/backups; `.gitignore` is not a security boundary.
-
+The first step reviews and confirms a plan that only destroys the original
+server (with `delete_ip_blocks=true`). The second fetches the live Seattle
+server and PUBLIC_IP hourly rates, requires a total at or below US$0.50/hour,
+confirms the plan creates only one /29 and one ESXi host, and asks for explicit
+approval before purchasing. ESXi will receive a new management address.
 ## 4. Verify host and the two independent NVMe devices
 
 Using the ESXi Host Client (publicly accessible in this lab) or BMC remote console:
@@ -233,12 +199,11 @@ terraform plan -destroy
 
 Do **not** run `terraform destroy` without a separate explicit teardown
 approval. It deprovisions the host and can permanently remove VMs and data.
-The server resource sets `delete_ip_blocks = true`, instructing phoenixNAP
-to also delete the automatically purchased public IP block when the server is
-deprovisioned. This is intended for a disposable lab: removing the block
-permanently releases its IP addresses. After any approved teardown, verify
-that **both the server and public IP allocation are gone** in the BMC portal
-to ensure billing has stopped.
+The replacement server uses a separately managed `pnap_ip_block` for /29 with
+`delete_ip_blocks = false` on the server. A normal approved Terraform destroy
+removes the server, then its IP block. The original /30-backed server is
+retired separately with its prior `delete_ip_blocks = true` state. Always
+verify both allocations and servers are gone from BMC billing.
 
 ## Upstream references
 
