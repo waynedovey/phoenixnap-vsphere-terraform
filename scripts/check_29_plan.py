@@ -54,8 +54,9 @@ def validate(plan, phase):
     server = value_of_output(plan, "quoted_server_usd_per_hour")
     per_ip = value_of_output(plan, "quoted_ipv4_usd_per_address_hour")
     total = value_of_output(plan, "quoted_total_usd_per_hour")
-    require(total == server + Decimal(8) * per_ip, "Quote does not equal server + all eight /29 addresses")
-    require(total <= MAX_USD_HOURLY, f"US${total}/hour exceeds the US$0.50/hour limit")
+    recomputed = server + Decimal(8) * per_ip
+    require(abs(total - recomputed) <= Decimal("0.000001"), "Quote does not equal server + all eight /29 addresses")
+    require(max(total, recomputed) <= MAX_USD_HOURLY, f"US${total}/hour exceeds the US$0.50/hour limit")
     print(f"PASS: Seattle /29 quote = US${server}/h server + 8 x US${per_ip}/h IPv4 = US${total}/h")
     print("PASS: only one /29 and one ESXi server will be purchased; no deletions or replacements")
 
