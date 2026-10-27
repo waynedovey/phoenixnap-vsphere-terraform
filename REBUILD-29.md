@@ -7,10 +7,13 @@ This is a **two-stage, operator-approved** migration for Wayne's existing host:
 - Replacement: `s2.c2.large` in `SEA`, `esxi/esxi80`, one purchased public **IPv4 /29**
 - Hourly cap: **US$0.50** for one server plus one /29 allocation
 
-Published rates suggest US$0.40 server + 8 x US$0.0035 IPv4 = **US$0.428/hour**.
-Terraform fetches account-specific Seattle prices from phoenixNAP's Billing API
-via `data.pnap_products` and **refuses to provision** if the unit quote is
-missing, ambiguous or above the budget. This is a pre-apply control, **not a
+Wayne's live catalog identifies **GLOBAL /29 range SKU `W0I2-DIVY-ZJVP`**
+(`product_code=range-29`) at **US$0.028/hour for the whole range**.
+With the confirmed Seattle server rate US$0.40/hour, the expected combined
+rate is **US$0.428/hour**. Do **not** multiply the /29 range charge by eight.
+Terraform rechecks these account-specific prices through `data.pnap_products`
+and refuses to provision if the exact SKU/rate is missing, ambiguous, or above
+the budget. This is a pre-apply control, **not a
 live billing limit**; taxes, bandwidth overages, licensing and other resources
 are outside that calculation.
 
@@ -31,36 +34,31 @@ python3 -m unittest discover -s tests -v
 ```
 
 Use your existing `~/.pnap/config.yaml` or configured provider credentials.
-Make sure `terraform.tfvars` contains:
+Confirm the supplied ESXi image is 8.0U2 as requested, then set
+`confirm_esxi_image = true` in your ignored `terraform.tfvars`.
+The guarded script passes cost approval **only within its disposable
+verification and purchase plans**, and requires separate typed authorization
+before destruction and purchase. Keep `confirm_previous_server_retired`
+at its default `false` until the original host is gone.
 
-```hcl
-approve_hourly_costs = true
-confirm_esxi_image = true
-```
-
-Keep `confirm_previous_server_retired` at its default `false` until the
-old server and `/30` have been removed.
-
-## 2. Obtain the live /29 quote before destroying the old host
+## 2. Verify the approved /29 quote before destroying the old host
 
 ```bash
-bash scripts/rebuild_29.sh quote
+bash scripts/rebuild_29.sh verify
 ```
 
-The command now runs an **independent, pricing-only Terraform configuration**
-under quote/. It has no managed resources and reads only the server pricing
-and the full PUBLIC_IP billing SKU catalog, including plans whose location is
-GLOBAL. This cannot change, destroy, or purchase anything and does not need
-approve_hourly_costs=true.
+This mode builds a **temporary plan only**, re-reads the live account pricing,
+and machine-checks the exact GLOBAL hourly /29 SKU and the calculation
+`0.40 + 0.028 = 0.428 USD/hour`. It also enforces the US$0.50/hour budget,
+then removes the temporary plan **without applying it**. The preview may
+include modifications to the currently running server; those are **not**
+applied by `verify`.
 
-**Diagnostic step:** Examine/paste the public_ip_catalog output before
-continuing. The full catalog exposes the price unit, pricing model, location,
-and SKU so we can confirm which price applies to a Seattle IPv4 /29.
-The current provisioning guard deliberately still refuses to purchase when
-that mapping is ambiguous. A published price is not account-specific proof.
+For raw catalog inspection only, `bash scripts/rebuild_29.sh quote` uses
+the separate `quote/` Terraform configuration with data sources only.
 
-**Do not run retire or create until the main /29 cost calculation matches
-the confirmed live catalog and a new guarded plan succeeds.**
+**Do not run retire unless verify passes, your existing ESXi workloads are
+backed up, and you are ready to lose the current server and IP address.**
 
 ## 3. Retire the original /30-backed host
 
@@ -88,11 +86,10 @@ bash scripts/rebuild_29.sh create
 This phase refuses to run while the old server is still in Terraform state,
 and asks you to confirm old IP allocation cleanup. It then:
 
-1. Fetches the live `s2.c2.large` hourly quote and hourly `PUBLIC_IP` unit
-   rates for Seattle, selecting a single unambiguous rate (or an explicitly
-   supplied SKU in `public_ipv4_sku`).
-2. Calculates **server + eight IPv4 addresses**; blocks the operation if the
-   live price is unavailable, zero, ambiguous or above **US$0.50/hour**.
+1. Fetches the live `s2.c2.large` Seattle hourly rate and approved
+   GLOBAL `range-29` public IPv4 hourly rate for SKU `W0I2-DIVY-ZJVP`.
+2. Calculates **server + one complete /29 range**; blocks if the exact
+   SKU/rate is unavailable, ambiguous or over **US$0.50/hour**.
 3. Previews and machine-checks the exact Terraform plan: **one `/29` block
    and one ESXi host to create; no other changes**.
 4. Requires you to type `BUY SEA /29` before applying the approved plan.
@@ -102,10 +99,11 @@ to the new separately managed `pnap_ip_block`. `delete_ip_blocks = false` on
 the new server avoids cascading deletion of this Terraform-managed block;
 normal future `terraform destroy` will remove the server first, then the block.
 
-If phoenixNAP returns more than one different hourly public IP unit price,
-the plan fails closed. Inspect the Billing API's Seattle PUBLIC_IP SKUs,
-identify the IPv4 SKU, and set `public_ipv4_sku` in `terraform.tfvars`.
-Do not guess the SKU or disable the cost guard.
+The account-approved `GLOBAL` /29 SKU is pinned in `public_ipv4_sku`.
+If it disappears or phoenixNAP changes its rate, the live quote is
+recalculated and the plan fails closed if ambiguous or above the cap.
+Changing the approved SKU requires reviewing and editing Terraform source;
+do not remove the cost guard.
 
 ## 5. Configure vCenter only after ESXi is online
 
