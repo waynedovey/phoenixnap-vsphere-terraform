@@ -1,0 +1,11 @@
+# Copy to terraform.tfvars and enter your own trusted *public* source IP.
+# The documentation address below is intentionally not your real IP.
+hostname                 = "esxi-01"
+management_allowed_cidrs = ["203.0.113.10/32"]
+initial_datastore_name   = "datastore1"
+
+# SAFETY GATES: these must remain false until you have checked the README,
+# confirmed exact ESXi image/version and explicitly approved billed resources.
+enable_provisioning = false
+approve_hourly_costs = false
+confirm_esxi_image   = false
