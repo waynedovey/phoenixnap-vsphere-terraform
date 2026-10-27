@@ -28,9 +28,14 @@ variable "maximum_hourly_usd" {
 }
 
 variable "public_ipv4_sku" {
-  description = "Optional exact Seattle public IPv4 billing SKU when more than one hourly IP rate is returned; leave null when unambiguous."
+  description = "Approved GLOBAL hourly /29 range SKU from the account-specific phoenixNAP Billing API."
   type        = string
-  default     = null
+  default     = "W0I2-DIVY-ZJVP"
+
+  validation {
+    condition     = var.public_ipv4_sku == "W0I2-DIVY-ZJVP"
+    error_message = "Only the approved GLOBAL /29 range SKU W0I2-DIVY-ZJVP is permitted."
+  }
 }
 
 variable "confirm_esxi_image" {
