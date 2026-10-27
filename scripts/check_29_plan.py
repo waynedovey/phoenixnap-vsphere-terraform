@@ -31,7 +31,7 @@ def value_of_output(plan, name):
 
 
 def validate(plan, phase):
-    require(phase in ("retire", "create"), "mode must be retire or create")
+    require(phase in ("quote", "retire", "create"), "mode must be quote, retire or create")
     expected = (
         {EXPECTED_SERVER: ["delete"]}
         if phase == "retire"
@@ -42,7 +42,10 @@ def validate(plan, phase):
         actions = resource.get("change", {}).get("actions", [])
         if actions != ["no-op"]:
             actual[resource["address"]] = actions
-    require(actual == expected, f"Unexpected Terraform actions. Expected {expected}; actual {actual}")
+    # Quote mode never applies the plan. Existing servers may show proposed
+    # network changes in the preview; only the live rate is used in this mode.
+    if phase != "quote":
+        require(actual == expected, f"Unexpected Terraform actions. Expected {expected}; actual {actual}")
 
     if phase == "retire":
         server = next(resource for resource in plan["resource_changes"] if resource["address"] == EXPECTED_SERVER)
@@ -58,12 +61,15 @@ def validate(plan, phase):
     require(abs(total - recomputed) <= Decimal("0.000001"), "Quote does not equal server + all eight /29 addresses")
     require(max(total, recomputed) <= MAX_USD_HOURLY, f"US${total}/hour exceeds the US$0.50/hour limit")
     print(f"PASS: Seattle /29 quote = US${server}/h server + 8 x US${per_ip}/h IPv4 = US${total}/h")
-    print("PASS: only one /29 and one ESXi server will be purchased; no deletions or replacements")
+    if phase == "quote":
+        print("QUOTE ONLY: this plan must never be applied to the running /30-backed host")
+    else:
+        print("PASS: only one /29 and one ESXi server will be purchased; no deletions or replacements")
 
 
 def main():
     if len(sys.argv) != 3:
-        raise ValueError("usage: check_29_plan.py retire|create <path-to-tfplan>")
+        raise ValueError("usage: check_29_plan.py quote|retire|create <path-to-tfplan>")
     phase, path = sys.argv[1:]
     result = subprocess.run(["terraform", "show", "-json", path], capture_output=True, text=True, check=True)
     validate(json.loads(result.stdout), phase)
