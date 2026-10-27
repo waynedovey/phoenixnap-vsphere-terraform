@@ -233,10 +233,12 @@ terraform plan -destroy
 
 Do **not** run `terraform destroy` without a separate explicit teardown
 approval. It deprovisions the host and can permanently remove VMs and data.
-Understand the separate IP-block lifecycle and BMC charges. The default
-`delete_ip_blocks = false` means the public IP allocation can survive host
-teardown and continue billing; delete the unused allocation separately after
-explicitly confirming it is no longer needed.
+The server resource sets `delete_ip_blocks = true`, instructing phoenixNAP
+to also delete the automatically purchased public IP block when the server is
+deprovisioned. This is intended for a disposable lab: removing the block
+permanently releases its IP addresses. After any approved teardown, verify
+that **both the server and public IP allocation are gone** in the BMC portal
+to ensure billing has stopped.
 
 ## Upstream references
 
