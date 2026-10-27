@@ -55,12 +55,32 @@ def validate(plan, phase):
         return
 
     server = value_of_output(plan, "quoted_server_usd_per_hour")
-    per_ip = value_of_output(plan, "quoted_ipv4_usd_per_address_hour")
+    full_range = value_of_output(plan, "quoted_public_ipv4_29_usd_per_hour")
     total = value_of_output(plan, "quoted_total_usd_per_hour")
-    recomputed = server + Decimal(8) * per_ip
-    require(abs(total - recomputed) <= Decimal("0.000001"), "Quote does not equal server + all eight /29 addresses")
-    require(max(total, recomputed) <= MAX_USD_HOURLY, f"US${total}/hour exceeds the US$0.50/hour limit")
-    print(f"PASS: Seattle /29 quote = US${server}/h server + 8 x US${per_ip}/h IPv4 = US${total}/h")
+
+    # Independently verify the exact account SKU selected by Terraform.
+    sku_output = plan.get("output_changes", {}).get("quoted_public_ip_skus", {})
+    require(sku_output.get("after_unknown") is not True, "GLOBAL /29 SKU is unknown")
+    selected_skus = sku_output.get("after") or []
+    require(bool(selected_skus), "Approved GLOBAL /29 SKU is missing from the live catalog")
+    for row in selected_skus:
+        require(row.get("product_code") == "range-29", "Unexpected IP product code")
+        require(row.get("sku") == "W0I2-DIVY-ZJVP", "Unexpected IP SKU")
+        require(row.get("location") == "GLOBAL", "IP SKU must have GLOBAL billing location")
+        require(row.get("pricing_model") == "HOURLY", "IP SKU must have HOURLY pricing")
+        require(row.get("price_unit") == "HOUR", "IP SKU must have HOUR price units")
+        try:
+            sku_rate = Decimal(str(row.get("rate")))
+        except InvalidOperation as error:
+            raise ValueError("Invalid /29 SKU rate") from error
+        require(sku_rate == full_range, "Live /29 SKU rate does not match quoted full-range charge")
+
+    # API price for range-29 is for the *entire /29*, not per address.
+    recomputed = server + full_range
+    require(abs(total - recomputed) <= Decimal("0.000001"), "Quote must equal server + ONE full /29 range")
+    require(max(total, recomputed) <= MAX_USD_HOURLY, f"US$${total}/hour exceeds the US$0.50/hour limit")
+    print(f"PASS: Seattle /29 quote = US$${server}/h server + US$${full_range}/h /29 range = US$${total}/h")
+
     if phase == "quote":
         print("QUOTE ONLY: this plan must never be applied to the running /30-backed host")
     else:
