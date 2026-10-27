@@ -78,8 +78,8 @@ def validate(plan, phase):
     # API price for range-29 is for the *entire /29*, not per address.
     recomputed = server + full_range
     require(abs(total - recomputed) <= Decimal("0.000001"), "Quote must equal server + ONE full /29 range")
-    require(max(total, recomputed) <= MAX_USD_HOURLY, f"US$${total}/hour exceeds the US$0.50/hour limit")
-    print(f"PASS: Seattle /29 quote = US$${server}/h server + US$${full_range}/h /29 range = US$${total}/h")
+    require(max(total, recomputed) <= MAX_USD_HOURLY, f"US${total}/hour exceeds the US$0.50/hour limit")
+    print(f"PASS: Seattle /29 quote = US${server}/h server + US${full_range}/h /29 range = US${total}/h")
 
     if phase == "quote":
         print("QUOTE ONLY: this plan must never be applied to the running /30-backed host")
