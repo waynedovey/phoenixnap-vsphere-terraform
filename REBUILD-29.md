@@ -47,11 +47,20 @@ old server and `/30` have been removed.
 bash scripts/rebuild_29.sh quote
 ```
 
-This creates **only a temporary Terraform plan** to read the live pricing
-API. It checks the calculated quote and then discards the plan. Because the
-old host is still present, Terraform might preview networking/replacement
-changes; **do not apply this preview plan**. This operation makes no billed
-changes.
+The command now runs an **independent, pricing-only Terraform configuration**
+under quote/. It has no managed resources and reads only the server pricing
+and the full PUBLIC_IP billing SKU catalog, including plans whose location is
+GLOBAL. This cannot change, destroy, or purchase anything and does not need
+approve_hourly_costs=true.
+
+**Diagnostic step:** Examine/paste the public_ip_catalog output before
+continuing. The full catalog exposes the price unit, pricing model, location,
+and SKU so we can confirm which price applies to a Seattle IPv4 /29.
+The current provisioning guard deliberately still refuses to purchase when
+that mapping is ambiguous. A published price is not account-specific proof.
+
+**Do not run retire or create until the main /29 cost calculation matches
+the confirmed live catalog and a new guarded plan succeeds.**
 
 ## 3. Retire the original /30-backed host
 
