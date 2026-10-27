@@ -6,8 +6,8 @@ OLD_ESXI_ID="6ae0430e5f894da540fb7126"
 OLD_ESXI_IP="131.153.165.146"
 MODE="${1:-}"
 
-if [[ "$MODE" != "retire" && "$MODE" != "create" ]]; then
-  echo "Usage: bash scripts/rebuild_29.sh retire|create" >&2
+if [[ "$MODE" != "quote" && "$MODE" != "retire" && "$MODE" != "create" ]]; then
+  echo "Usage: bash scripts/rebuild_29.sh quote|retire|create" >&2
   exit 2
 fi
 
@@ -16,9 +16,27 @@ terraform validate
 
 PLAN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pnap29-${MODE}.XXXXXXXX")"
 PLAN_FILE="$PLAN_DIR/plan.tfplan"
-trap 'rm -f -- "$PLAN_FILE"; rmdir -- "$PLAN_DIR"' EXIT
+QUOTE_FILE="$PLAN_DIR/quote.tfplan"
+trap 'rm -f -- "$PLAN_FILE" "$QUOTE_FILE"; rmdir -- "$PLAN_DIR"' EXIT
+
+quote_only() {
+  echo "Checking the live account-specific Seattle quote; this plan will NOT be applied."
+  terraform plan \
+    -var='enable_provisioning=true' \
+    -var='confirm_previous_server_retired=true' \
+    -out="$QUOTE_FILE"
+  python3 scripts/check_29_plan.py quote "$QUOTE_FILE"
+  echo "Quote passed. Any server/network changes shown above are a PREVIEW ONLY."
+}
+
+if [[ "$MODE" == "quote" ]]; then
+  quote_only
+  exit 0
+fi
 
 if [[ "$MODE" == "retire" ]]; then
+  # Price-check the future /29 before permanently deleting the old host.
+  quote_only
   CURRENT_ID="$(terraform output -raw esxi_server_id 2>/dev/null || true)"
   if [[ "$CURRENT_ID" != "$OLD_ESXI_ID" ]]; then
     echo "STOP: current state server ID '$CURRENT_ID' does not match expected $OLD_ESXI_ID" >&2
