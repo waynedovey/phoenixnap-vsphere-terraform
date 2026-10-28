@@ -1,5 +1,7 @@
 # phoenixNAP VMware vSphere evaluation lab
 
+> **Ashburn migration:** The new independent US East 1 stack and disposable VCSA installer are documented in [ashburn/README.md](ashburn/README.md). This Seattle stack remains unchanged until intentionally retired.
+
 Terraform provisions **one ESXi bare-metal host** in Seattle. A separate,
 deliberately gated workflow deploys **vCenter Server Appliance (VCSA) 8**
 from legitimate Broadcom media. Nothing is automatically applied.
