@@ -82,18 +82,43 @@ With `vcsa_iso_sha256 = ""`, cloud-init intentionally **does not download the IS
 terraform -chdir=ashburn init
 terraform -chdir=ashburn validate
 terraform -chdir=ashburn state list
-terraform -chdir=ashburn plan -out=provision.tfplan
-terraform -chdir=ashburn show provision.tfplan
 ```
 
-Fresh rebuild: the **only** changes should be three creates,
-`pnap_ip_block.esxi_29[0]`, `pnap_server.esxi[0]`,
-`pnap_server.installer[0]` (3 add, 0 change, 0 destroy).
-**Stop** if resources are already in state, still in the PhoenixNAP console,
-or the plan replaces/deletes something. Verify costs before applying.
+First, confirm **Ashburn state and the PhoenixNAP console are empty**.
+Allocate only the /29. The PhoenixNAP provider can show
+`server_ip_block.id = null` if the ESXi server and its new /29 are in the
+**same first plan**. To avoid provisioning with an empty ID, use `-target`
+**once** for this initial /29 allocation only (Terraform will warn about targeting):
 
 ```bash
-terraform -chdir=ashburn apply provision.tfplan
+terraform -chdir=ashburn plan -target='pnap_ip_block.esxi_29[0]' -out=ip-block-only.tfplan
+terraform -chdir=ashburn show ip-block-only.tfplan
+```
+
+Expect **1 add, 0 change, 0 destroy** for `pnap_ip_block.esxi_29[0]`
+alone. Confirm the price and account are correct; then:
+
+```bash
+terraform -chdir=ashburn apply ip-block-only.tfplan
+terraform -chdir=ashburn state show 'pnap_ip_block.esxi_29[0]'
+```
+
+Next, create a **new, complete plan without `-target`**:
+
+```bash
+terraform -chdir=ashburn plan -out=servers.tfplan
+terraform -chdir=ashburn show servers.tfplan
+terraform -chdir=ashburn show -json servers.tfplan | jq -r '.resource_changes[] | select(.address == "pnap_server.esxi[0]") | .change.after.network_configuration[0].ip_blocks_configuration[0].ip_blocks[0].server_ip_block[0].id'
+```
+
+Expect **2 add, 0 change, 0 destroy**: `pnap_server.esxi[0]` and
+`pnap_server.installer[0]`. The ID printed by `jq` must match the /29
+ID from `state show` (not null or blank). **Stop** if the ID differs,
+any resource would be replaced/deleted, or old servers still exist.
+Verify the quoted costs, then apply:
+
+```bash
+terraform -chdir=ashburn apply servers.tfplan
 terraform -chdir=ashburn state list
 terraform -chdir=ashburn output
 ```
