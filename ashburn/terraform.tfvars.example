@@ -1,12 +1,13 @@
 # Independent state. This example never provisions anything.
+# Last working ASH SKUs are examples only; check current stock and prices.
 enable_esxi             = false
 enable_installer        = false
 confirm_seattle_retired = false
 confirm_esxi_image      = false
 approve_hourly_costs    = false
 
-esxi_type              = "s2.c2.large"
-installer_type         = "s0.d1.small"
+esxi_type              = "s2.c2.medium"
+installer_type         = "s2.c1.small"
 maximum_hourly_usd     = 1.00
 management_allowed_cidrs = ["0.0.0.0/0"]
 
