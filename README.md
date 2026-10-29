@@ -71,16 +71,42 @@ Restrict `management_allowed_cidrs` to your IP (`/32`) if possible;
 terraform -chdir=ashburn init
 terraform -chdir=ashburn validate
 terraform -chdir=ashburn state list
-terraform -chdir=ashburn plan -out=provision.tfplan
-terraform -chdir=ashburn show provision.tfplan
 ```
 
-A completely clean first run should be **3 add, 0 change, 0 destroy**:
-ESXi, installer and ESXi /29. **Stop** if any existing resources would be
-replaced/deleted or if the console still contains the old lab. Review costs.
+On a **clean account with empty Ashburn state**, allocate the ESXi /29 first.
+The PhoenixNAP provider can show `id = null` in the ESXi server's nested
+network configuration when both resources are planned together. This is a
+**one-time, deliberately targeted bootstrap**, not routine `-target` usage:
 
 ```bash
-terraform -chdir=ashburn apply provision.tfplan
+terraform -chdir=ashburn plan -target='pnap_ip_block.esxi_29[0]' -out=ip-block-only.tfplan
+terraform -chdir=ashburn show ip-block-only.tfplan
+```
+
+Expect **1 add, 0 change, 0 destroy**, for the IP block only. Review the
+price and confirm old Ashburn IP allocations are gone before applying:
+
+```bash
+terraform -chdir=ashburn apply ip-block-only.tfplan
+terraform -chdir=ashburn state show 'pnap_ip_block.esxi_29[0]'
+```
+
+Now plan both servers using the **actual** allocated IP block ID:
+
+```bash
+terraform -chdir=ashburn plan -out=servers.tfplan
+terraform -chdir=ashburn show servers.tfplan
+terraform -chdir=ashburn show -json servers.tfplan | jq -r '.resource_changes[] | select(.address == "pnap_server.esxi[0]") | .change.after.network_configuration[0].ip_blocks_configuration[0].ip_blocks[0].server_ip_block[0].id'
+```
+
+Expect **2 add, 0 change, 0 destroy**: ESXi plus the temporary Ubuntu
+installer. The printed block ID must equal the ID in `state show`.
+**Stop** if the ID is empty/null, anything would be replaced/deleted, or
+the old lab still appears in the console. Once reviewed:
+
+```bash
+terraform -chdir=ashburn apply servers.tfplan
+terraform -chdir=ashburn state list
 terraform -chdir=ashburn output
 ```
 
