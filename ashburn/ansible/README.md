@@ -32,13 +32,16 @@ ansible-galaxy collection install -r ashburn/ansible/requirements.yml
 ```
 
 On macOS, use one isolated Python environment for Ansible **and** the
-VMware module's dependencies. From the repository root, run this once:
+VMware module's dependencies. Use Python **3.14** with Ansible Core 2.21;
+Homebrew's unversioned `python3` might point to Python 3.15, which Core 2.21
+does not support. From the repository root, run this once:
 
 ```bash
-python3 -m venv ashburn/.venv
+brew install python@3.14  # only if python3.14 is not installed
+python3.14 -m venv ashburn/.venv
 source ashburn/.venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install ansible-core requests pyvmomi
+python -m pip install 'ansible-core>=2.21,<2.22' requests pyvmomi
 ansible-galaxy collection install -r ashburn/ansible/requirements.yml
 python -c 'import requests, pyVmomi; print("VMware Python dependencies: OK")'
 ansible --version
