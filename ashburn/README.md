@@ -58,6 +58,75 @@ Check the plan's resource addresses, hourly quote and region **before**
 applying. Terraform creates servers and a /29; it does **not** install VCSA.
 Keep this local state, since you will need it for teardown.
 
+## 2A. ESXi already exists? Deploy **only** the ISO installer
+
+If the ESXi host is running, do **not** provision ESXi a second time. Your
+earlier lab ran an installer at `131.153.155.201`, and later logs confirmed
+`vcsa-ash` in vCenter. First check whether an installer still exists and
+whether you actually need to rebuild VCSA:
+
+```bash
+terraform -chdir=ashburn state list
+terraform -chdir=ashburn output installer_id
+terraform -chdir=ashburn output installer_public_ip_addresses
+terraform -chdir=ashburn output esxi_id
+```
+
+- If state lists `pnap_server.installer[0]`, check its ID against the
+  PhoenixNAP console. Do **not** launch a duplicate.
+- If `installer_id` is `null`, the server is not in this state. Check
+  PhoenixNAP for an orphaned server before proceeding.
+- If `govc about` shows `VMware vCenter Server` and `govc find / -type m`
+  lists `vcsa-ash`, the VCSA installer is no longer required unless you
+  intend to rebuild it.
+
+To add *only* the missing Ubuntu host, edit your **existing**
+`ashburn/terraform.tfvars` (never copy the example over it):
+
+```hcl
+enable_esxi      = true
+enable_installer = true
+installer_type   = "s2.c1.small"
+```
+
+**Keep your current `esxi_type`, network settings and approval flags unchanged.**
+Supply a trusted, independently vendor-verified 64-character
+`vcsa_iso_sha256`; leaving it blank makes cloud-init skip the ISO. Verify
+the temporary server type is in stock and that the revised hourly quote fits
+your approved budget.
+
+```bash
+terraform -chdir=ashburn plan -out=installer-only.tfplan
+terraform -chdir=ashburn show installer-only.tfplan
+```
+
+**STOP unless the plan creates exactly `pnap_server.installer[0]`
+(1 add, 0 change, 0 destroy).** No ESXi replacement, /29 change or other
+resources should appear. Only then apply:
+
+```bash
+terraform -chdir=ashburn apply installer-only.tfplan
+terraform -chdir=ashburn output installer_id
+terraform -chdir=ashburn output installer_public_ip_addresses
+```
+
+The public IP output may contain a **range** rather than a single SSH address.
+Get the host's **primary IP** from the PhoenixNAP console. The ISO bootstrap
+should prepare `/mnt/vcsa`, not deploy vCenter. Check it with:
+
+```bash
+ssh ubuntu@INSTALLER_IP
+sudo tail -n 50 /var/log/vcsa-installer-bootstrap.log
+ls -l /opt/vcsa/MEDIA_READY
+mountpoint /mnt/vcsa
+ls -l /mnt/vcsa/vcsa-cli-installer/lin64/vcsa-deploy
+```
+
+If `MEDIA_READY` is absent or the mount check fails, fix bootstrap/media
+verification before trying to install VCSA. The old `libnsl2` package
+dependency that caused Ubuntu 20.04 bootstrap failures was removed in this
+branch. Continue with section 3 only when the ISO is mounted and ready.
+
 ## 3. Deploy VCSA on ESXi
 
 1. Connect `govc` to the **new ESXi IP** from
