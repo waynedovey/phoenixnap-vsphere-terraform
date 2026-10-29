@@ -28,6 +28,18 @@ use the teardown commands below—not the UI.
 
 ## 1. Configure (Mac)
 
+If cloning for the first time (the default `main` branch does **not** contain
+`ashburn/`):
+
+```bash
+git clone https://github.com/waynedovey/phoenixnap-vsphere-terraform.git
+cd phoenixnap-vsphere-terraform
+git switch --track origin/feat/ashburn-esxi-temporary-vcsa-installer
+```
+
+If the repository already exists, switch it to the Ashburn feature branch
+before continuing. Never force a switch across local changes.
+
 Requirements: `terraform`, `jq`, `govc`, `python3`, `ssh`, `scp`,
 PhoenixNAP credentials (`PNAP_CLIENT_ID` and `PNAP_CLIENT_SECRET`),
 authorized VMware media, and any required PhoenixNAP approval to run VCSA.
