@@ -31,8 +31,30 @@ Install the Ansible collection once:
 ansible-galaxy collection install -r ashburn/ansible/requirements.yml
 ```
 
-Install Python dependencies into the environment providing `ansible-playbook`;
-use a Python virtual environment if the system Python is externally managed.
+On macOS, use one isolated Python environment for Ansible **and** the
+VMware module's dependencies. From the repository root, run this once:
+
+```bash
+python3 -m venv ashburn/.venv
+source ashburn/.venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install ansible-core requests pyvmomi
+ansible-galaxy collection install -r ashburn/ansible/requirements.yml
+python -c 'import requests, pyVmomi; print("VMware Python dependencies: OK")'
+ansible --version
+```
+
+Keep this environment activated when running the registration wrapper.
+The playbook pins `ansible_python_interpreter` to `ansible_playbook_python`,
+so localhost modules cannot accidentally switch to Apple's Command Line Tools
+Python, where `requests` may be missing. In a new Terminal session:
+
+```bash
+source ashburn/.venv/bin/activate
+bash ashburn/scripts/register-esxi.sh
+```
+
+Do not install packages into macOS's `/Library/Developer/CommandLineTools` Python.
 
 ## Register
 
