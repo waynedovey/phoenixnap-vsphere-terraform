@@ -1,193 +1,214 @@
-# Ashburn vSphere 8 — simple runbook
+# Ashburn vSphere 8 — full build and teardown
 
-This stack lives in `ashburn/` and uses **independent Terraform state**.
-It manages the PhoenixNAP ESXi server, a public IPv4 /29 and (optionally) a
-temporary Ubuntu installer. The VCSA VM runs **inside ESXi**, not as a separate
-PhoenixNAP server.
+This guide is for the **`phoenixnap-vsphere-terraform`** folder, checked out on
+`feat/ashburn-esxi-temporary-vcsa-installer`. Run all Mac commands from the
+**repository root**. Only use **`terraform -chdir=ashburn`**: the root Terraform
+files and root `terraform.tfstate` belong to legacy Seattle work.
 
-## 1. Prerequisites
+**Topology:** Terraform provisions (1) bare-metal ESXi with a public /29 and
+(2) a **separate temporary Ubuntu ISO installer**. The VCSA is a **VM inside ESXi**.
+Ansible adds the host to vCenter after VCSA is installed.
 
-- On your Mac: `terraform`, `jq`, `govc`, `ssh`, `scp`.
-- PhoenixNAP API credentials available as `PNAP_CLIENT_ID` and
-  `PNAP_CLIENT_SECRET` (load privately; never commit them).
-- Correct ASH hardware stock and live prices. Our working lab used
-  `s2.c2.medium` (ESXi) and `s2.c1.small` (temporary installer);
-  availability and price can change.
-- A legally obtained VCSA ISO and SHA-256 **independently checked against a
-  trusted vendor source**. The default third-party URL is not an official
-  source. Get any required PhoenixNAP approval for hosting VCSA.
-- The old Seattle environment really retired before setting the corresponding
-  approval flag. Management access is public unless its CIDRs are restricted.
+## 0. Manual UI cleanup — only for missing/empty Terraform state
 
-## 2. Provision the bare-metal lab
+If an old Ashburn run was manually deleted or its state lost:
 
-Run from the **Ashburn checkout root**, not the old Seattle checkout:
+1. Back up the data you need. Deleting ESXi destroys its VCSA VM and datastore.
+2. Verify `terraform -chdir=ashburn state list` is **empty**. If not, stop and
+   reconcile its resource IDs before touching the portal.
+3. In PhoenixNAP **Servers**, delete `esxi-01` and `vcsa-installer-ash` if present.
+   Check you are in region **ASH**, not Seattle.
+4. In **Networking → Public IP Allocations**, delete the unused **/29**
+   and the installer's remaining default IP allocation, if any.
+5. Check the **Servers**, **Public IP Allocations** and **Billing** screens until
+   no old chargeable Ashburn resources remain. Retaining an IP allocation is billable.
+6. Keep state backups; never copy the root/Seattle state into `ashburn/`.
+
+**Do not use the UI for normal teardown once Terraform manages resources.**
+Use section 6.
+
+## 1. Configure the empty stack
+
+Preflight on the Mac: `terraform`, `jq`, `govc`, `python3`, `ssh`, `scp`,
+and PhoenixNAP API environment variables `PNAP_CLIENT_ID` and
+`PNAP_CLIENT_SECRET`. Obtain VMware VCSA 8 media legally, a vendor-verified
+SHA-256 digest and any required written PhoenixNAP approval for VCSA.
 
 ```bash
-cp ashburn/terraform.tfvars.example ashburn/terraform.tfvars
+cd /Users/wdovey/OCP/phoenixnap-vsphere-terraform
+git branch --show-current
+cp -n ashburn/terraform.tfvars.example ashburn/terraform.tfvars
+chmod 600 ashburn/terraform.tfvars
+vim ashburn/terraform.tfvars
 ```
 
-Edit `ashburn/terraform.tfvars`. For a brand-new, fully approved build:
+For **both servers in a fully approved clean lab**, use:
 
 ```hcl
-enable_esxi             = true
-enable_installer        = true
-confirm_seattle_retired = true
-confirm_esxi_image      = true
-approve_hourly_costs    = true
-esxi_type               = "s2.c2.medium"
-installer_type          = "s2.c1.small"
-maximum_hourly_usd      = 1.00
+enable_esxi              = true
+enable_installer         = true
+confirm_seattle_retired  = true
+confirm_esxi_image       = true
+approve_hourly_costs     = true
+esxi_type                = "s2.c2.medium"
+installer_type           = "s2.c1.small"
+maximum_hourly_usd       = 1.00
+management_allowed_cidrs = ["0.0.0.0/0"]
+vcsa_iso_sha256          = "REPLACE_WITH_VENDOR_VERIFIED_64_HEX_CHARACTER_SHA256"
 ```
 
-Set `vcsa_iso_sha256` separately to your **actual verified 64-character
-digest**. If it is empty, the installer VM may be provisioned but its ISO
-download is intentionally skipped. Do not set approvals to true without
-verifying them; they do not guarantee stock or enforce a live billing stop.
+Only set the three confirmation flags after checking their conditions.
+The SKUs above worked previously but **stock and prices can change**.
+The management CIDR allows access from everywhere; for a safer lab use
+your IP as a `/32`. The default `vcsa_iso_url` points to an **unofficial mirror**:
+use an authorized source and a digest independently verified with the vendor.
+With `vcsa_iso_sha256 = ""`, cloud-init intentionally **does not download the ISO**.
+
+## 2. Provision ESXi, /29 and temporary Ubuntu
 
 ```bash
 terraform -chdir=ashburn init
 terraform -chdir=ashburn validate
+terraform -chdir=ashburn state list
 terraform -chdir=ashburn plan -out=provision.tfplan
 terraform -chdir=ashburn show provision.tfplan
+```
+
+Fresh rebuild: the **only** changes should be three creates,
+`pnap_ip_block.esxi_29[0]`, `pnap_server.esxi[0]`,
+`pnap_server.installer[0]` (3 add, 0 change, 0 destroy).
+**Stop** if resources are already in state, still in the PhoenixNAP console,
+or the plan replaces/deletes something. Verify costs before applying.
+
+```bash
 terraform -chdir=ashburn apply provision.tfplan
+terraform -chdir=ashburn state list
 terraform -chdir=ashburn output
 ```
 
-Check the plan's resource addresses, hourly quote and region **before**
-applying. Terraform creates servers and a /29; it does **not** install VCSA.
-Keep this local state, since you will need it for teardown.
+If creation returns `406 No server available`, inspect the **partial state**
+and PhoenixNAP console before retrying with another available SKU. Never
+discard state or blindly reapply. The bare-metal ESXi install can take minutes.
+The VCSA is **not** installed by Terraform.
 
-## 2A. ESXi already exists? Deploy **only** the ISO installer
+Keep `ashburn/terraform.tfstate` and `ashburn/terraform.tfvars` in the current
+repository; both are ignored by Git. State can include your ESXi root password:
+back it up **securely outside Git**, do not print or publish it.
 
-If the ESXi host is running, do **not** provision ESXi a second time. Your
-earlier lab ran an installer at `131.153.155.201`, and later logs confirmed
-`vcsa-ash` in vCenter. First check whether an installer still exists and
-whether you actually need to rebuild VCSA:
+## 3. Deploy VCSA from the temporary Ubuntu server
 
-```bash
-terraform -chdir=ashburn state list
-terraform -chdir=ashburn output installer_id
-terraform -chdir=ashburn output installer_public_ip_addresses
-terraform -chdir=ashburn output esxi_id
-```
+### 3A. Check ESXi networking and storage (Mac)
 
-- If state lists `pnap_server.installer[0]`, check its ID against the
-  PhoenixNAP console. Do **not** launch a duplicate.
-- If `installer_id` is `null`, the server is not in this state. Check
-  PhoenixNAP for an orphaned server before proceeding.
-- If `govc about` shows `VMware vCenter Server` and `govc find / -type m`
-  lists `vcsa-ash`, the VCSA installer is no longer required unless you
-  intend to rebuild it.
-
-To add *only* the missing Ubuntu host, edit your **existing**
-`ashburn/terraform.tfvars` (never copy the example over it):
-
-```hcl
-enable_esxi      = true
-enable_installer = true
-installer_type   = "s2.c1.small"
-```
-
-**Keep your current `esxi_type`, network settings and approval flags unchanged.**
-Supply a trusted, independently vendor-verified 64-character
-`vcsa_iso_sha256`; leaving it blank makes cloud-init skip the ISO. Verify
-the temporary server type is in stock and that the revised hourly quote fits
-your approved budget.
+Connect `govc` to the new ESXi using the password **already in Ashburn state**:
 
 ```bash
-terraform -chdir=ashburn plan -out=installer-only.tfplan
-terraform -chdir=ashburn show installer-only.tfplan
+export GOVC_URL="$(terraform -chdir=ashburn output -raw esxi_management_url)/sdk"
+export GOVC_USERNAME=root
+export GOVC_INSECURE=1
+export GOVC_PASSWORD="$(terraform -chdir=ashburn state pull | jq -er '.resources[] | select(.type == "pnap_server" and .name == "esxi") | .instances[0].attributes.root_password')"
+govc about
+govc host.portgroup.info
+govc datastore.info
 ```
 
-**STOP unless the plan creates exactly `pnap_server.installer[0]`
-(1 add, 0 change, 0 destroy).** No ESXi replacement, /29 change or other
-resources should appear. Only then apply:
+If `vcsa-public` is **absent**, and PhoenixNAP's public VLAN is confirmed as
+**3**, add it once:
 
 ```bash
-terraform -chdir=ashburn apply installer-only.tfplan
-terraform -chdir=ashburn output installer_id
-terraform -chdir=ashburn output installer_public_ip_addresses
+govc host.portgroup.add -vswitch vSwitch0 -vlan 3 vcsa-public
+govc host.portgroup.info
 ```
 
-The public IP output may contain a **range** rather than a single SSH address.
-Get the host's **primary IP** from the PhoenixNAP console. The ISO bootstrap
-should prepare `/mnt/vcsa`, not deploy vCenter. Check it with:
+**Never format `datastore1`.** The previous host showed one Micron NVMe
+**boot** drive containing ESXi, `OSDATA` and `datastore1`. Do not assume
+there are two spare drives.
+
+### 3B. Check the ISO bootstrap (Mac → Ubuntu)
+
+Look up `pnap_server.installer` in PhoenixNAP and copy its **primary public
+IPv4** (the Terraform output may show a *range*). Set that IP explicitly:
 
 ```bash
-ssh ubuntu@INSTALLER_IP
-sudo tail -n 50 /var/log/vcsa-installer-bootstrap.log
-ls -l /opt/vcsa/MEDIA_READY
-mountpoint /mnt/vcsa
-ls -l /mnt/vcsa/vcsa-cli-installer/lin64/vcsa-deploy
+export INSTALLER_IP="REPLACE_WITH_PRIMARY_INSTALLER_PUBLIC_IP"
+ssh ubuntu@"$INSTALLER_IP" 'sudo tail -n 40 /var/log/vcsa-installer-bootstrap.log'
+ssh ubuntu@"$INSTALLER_IP" 'test -f /opt/vcsa/MEDIA_READY && mountpoint /mnt/vcsa && test -f /mnt/vcsa/vcsa-cli-installer/lin64/vcsa-deploy'
 ```
 
-If `MEDIA_READY` is absent or the mount check fails, fix bootstrap/media
-verification before trying to install VCSA. The old `libnsl2` package
-dependency that caused Ubuntu 20.04 bootstrap failures was removed in this
-branch. Continue with section 3 only when the ISO is mounted and ready.
+If `MEDIA_READY` is missing, stop. Check the log, ISO URL and checksum.
+An empty/unverified digest skips download. Ubuntu `focal` media setup no longer
+requests the missing `libnsl2` package.
 
-## 3. Deploy VCSA on ESXi
+### 3C. Generate IP-correct VCSA configuration (Mac)
 
-1. Connect `govc` to the **new ESXi IP** from
-   `terraform -chdir=ashburn output -raw esxi_management_url`
-   using its root credentials from **Ashburn** Terraform state.
-2. Check the `vcsa-public` port group. If missing, create it:
-   `govc host.portgroup.add -vswitch vSwitch0 -vlan 3 vcsa-public`.
-   Do not change ESXi management networking.
-3. Get the temporary Ubuntu host's **SSH IP** from the PhoenixNAP console
-   (the Terraform output may show an IP range), then check media readiness:
+Use the **official template from your mounted ISO**, not an old Seattle JSON.
+VMware's install template for a standalone ESXi host is
+`vcsa-cli-installer/templates/install/embedded_vCSA_on_ESXi.json`.
 
-   ```bash
-   ssh ubuntu@INSTALLER_IP
-   sudo tail -n 40 /var/log/vcsa-installer-bootstrap.log
-   ls -l /opt/vcsa/MEDIA_READY
-   ls -l /mnt/vcsa/vcsa-cli-installer/lin64/vcsa-deploy
-   ```
+```bash
+mkdir -p private
+chmod 700 private
+scp ubuntu@"$INSTALLER_IP":/mnt/vcsa/vcsa-cli-installer/templates/install/embedded_vCSA_on_ESXi.json private/embedded_vCSA_on_ESXi.json
+python3 scripts/render-vcsa-config.py --template private/embedded_vCSA_on_ESXi.json
+jq '{esxi: .new_vcsa.esxi.hostname, portgroup: .new_vcsa.esxi.deployment_network, datastore: .new_vcsa.esxi.datastore, vcsa: .new_vcsa.network.ip, prefix: .new_vcsa.network.prefix, gateway: .new_vcsa.network.gateway, system_name: .new_vcsa.network.system_name}' private/vcsa-config-ashburn.json
+```
 
-   If `MEDIA_READY` is missing, fix the bootstrap error first. Some Ubuntu
-   20.04 images did not provide `libnsl2`, which previously interrupted setup.
-4. On the Mac, create or update the **ignored**
-   `private/vcsa-config-ashburn.json` from the VMware installer template.
-   Use the current /29 allocation: ESXi's management IP, a **different unused**
-   VCSA guest IP, its actual gateway and /29 prefix, DNS, `datastore1`, and
-   `vcsa-public`. Do **not** reuse old Seattle addresses or put passwords
-   in the file. Check values with `jq` before copying.
-5. Copy the configuration and existing deployment wrapper to Ubuntu:
+The renderer reads **`terraform -chdir=ashburn output -json`** and checks
+the previously observed /29 layout (gateway = network +1, ESXi = +2,
+VCSA = +3). **It will stop if the ESXi layout changes.** Confirm the
+VCSA IP is **unused** and routable through VLAN 3 before continuing.
+The JSON contains `FILL_RUNTIME` placeholders, **not real passwords**,
+and is written mode 0600 under ignored `private/`.
 
-   ```bash
-   ssh ubuntu@INSTALLER_IP 'umask 077; mkdir -p vcsa; chmod 700 vcsa'
-   scp private/vcsa-config-ashburn.json ubuntu@INSTALLER_IP:vcsa/vcsa-config.json
-   scp scripts/vcsa.py ubuntu@INSTALLER_IP:vcsa/
-   ```
+Do **not** overwrite an existing `private/vcsa-config-ashburn.json` without
+reviewing and archiving it first. Check DNS, NTP, deployment size and
+vCenter network settings for your actual environment.
 
-6. In the **Ubuntu Bash SSH session**, provide passwords privately and run:
+### 3D. Precheck and deploy (Ubuntu Bash)
 
-   ```bash
-   cd ~/vcsa
-   read -rsp 'ESXi root password: ' ESXI_ROOT_PASSWORD; echo
-   read -rsp 'New VCSA root password: ' VCSA_ROOT_PASSWORD; echo
-   read -rsp 'New VCSA SSO password: ' VCSA_SSO_PASSWORD; echo
-   export ESXI_ROOT_PASSWORD VCSA_ROOT_PASSWORD VCSA_SSO_PASSWORD
-   export VCSA_INSTALLER_DIR=/mnt/vcsa
-   python3 vcsa.py check --template vcsa-config.json
-   python3 vcsa.py precheck --template vcsa-config.json
-   ```
+Copy the generated template and existing wrapper:
 
-   After reviewing the precheck, EULA and vendor-support requirements, deploy:
+```bash
+ssh ubuntu@"$INSTALLER_IP" 'umask 077; mkdir -p vcsa; chmod 700 vcsa'
+scp private/vcsa-config-ashburn.json ubuntu@"$INSTALLER_IP":vcsa/vcsa-config.json
+scp scripts/vcsa.py ubuntu@"$INSTALLER_IP":vcsa/
+ssh ubuntu@"$INSTALLER_IP"
+```
 
-   ```bash
-   export PNAP_VCENTER_SUPPORT_CONFIRMED=YES
-   export VCSA_DEPLOY_APPROVED=YES
-   python3 vcsa.py deploy --template vcsa-config.json
-   ```
+**Now in the Ubuntu Bash SSH session**, enter passwords privately.
+The new VCSA root password must be 8–20 characters and include upper/lowercase,
+a number and punctuation, with no spaces. Do not use macOS/Zsh `read -p`.
 
-   The wrapper asks for a final `DEPLOY-VCENTER` confirmation.
-   The VCSA installation is **manual and separate** from Terraform.
+```bash
+cd ~/vcsa
+read -rsp 'ESXi root password: ' ESXI_ROOT_PASSWORD; echo
+read -rsp 'New VCSA root password: ' VCSA_ROOT_PASSWORD; echo
+read -rsp 'New VCSA SSO password: ' VCSA_SSO_PASSWORD; echo
+export ESXI_ROOT_PASSWORD VCSA_ROOT_PASSWORD VCSA_SSO_PASSWORD
+export VCSA_INSTALLER_DIR=/mnt/vcsa
+python3 vcsa.py check --template vcsa-config.json
+python3 vcsa.py precheck --template vcsa-config.json
+```
 
-## 4. Register ESXi in vCenter using Ansible
+The ESXi password is the root password of the **new** host, not your VCSA
+SSO password. Review the precheck output and VMware's EULA and support terms.
+**Only after you have actual PhoenixNAP/VCSA deployment approval**:
 
-From the Mac, after VCSA responds:
+```bash
+export PNAP_VCENTER_SUPPORT_CONFIRMED=YES
+export VCSA_DEPLOY_APPROVED=YES
+python3 vcsa.py deploy --template vcsa-config.json
+```
+
+The script requires typing `DEPLOY-VCENTER` as a final confirmation.
+Password values are injected into a temporary JSON and not committed to Git.
+VMware logs might contain connection details: handle them privately.
+
+Wait for `https://VCSA_IP/ui` to become healthy. The VCSA IP is the
+`vcsa` address printed by the renderer; it is **not the installer IP**.
+
+## 4. Register ESXi in vCenter (Ansible on Mac)
+
+From the repository root on Mac **after VCSA is ready**:
 
 ```bash
 brew install python@3.14
@@ -198,59 +219,67 @@ ansible-galaxy collection install -r ashburn/ansible/requirements.yml
 bash ashburn/scripts/register-esxi.sh
 ```
 
-The wrapper reads the **current Ashburn IPs** and ESXi credentials from state
-and asks for the VCSA SSO password. It idempotently creates `Datacenter`
-and registers the standalone ESXi host. See
-[Ansible notes](ansible/README.md) for troubleshooting.
+The wrapper reads the new ESXi IP and root password from Terraform state
+and the VCSA IP from `private/vcsa-config-ashburn.json`. It asks for the
+VCSA SSO password, creates **Datacenter** if needed and registers ESXi
+under `/Datacenter/host`. Re-running it is safe; it **does not format storage**.
+See [Ansible notes](ansible/README.md).
 
-Verify from the vCenter-connected `govc` session:
+Verify through vCenter-connected `govc` (set `GOVC_URL` to the VCSA `/sdk`,
+`GOVC_USERNAME` to `administrator@vsphere.local`, and enter the SSO password):
 
 ```bash
+govc about
+govc ls /
 govc host.info
-govc find / -type m
 govc datastore.info
+govc find / -type m
 ```
 
-Expect ESXi connected, VCSA present and `datastore1` visible.
-**Never reformat datastore1:** it is on the only observed NVMe boot disk.
+Expect the host connected, `Datacenter` present, `datastore1` and a VCSA VM.
 
-## 5. Tear down
+## 5. Retire **only** the Ubuntu installer
 
-### Temporary Ubuntu installer only
-
-Once VCSA is healthy:
+Once VCSA is working, the Ubuntu ISO downloader is no longer necessary:
 
 ```bash
 bash ashburn/scripts/retire-installer.sh
 ```
 
-Confirm the installer ID when prompted. Then change
-`enable_installer = false` in `ashburn/terraform.tfvars` so later normal
-applies don't recreate it. ESXi, VCSA and the /29 remain running.
+The script checks for ESXi, shows a plan and requires the installer
+**server ID** before deleting it. Afterwards edit `ashburn/terraform.tfvars`
+to `enable_installer = false`. Verify the installer and default public IP
+allocation disappear in the PhoenixNAP portal and billing.
 
-### Everything (ESXi, VCSA, installer, public IPs)
+**Keep ESXi, VCSA and the ESXi /29** running.
 
-**Back up any data you need first. This is irreversible.** Run from the same
-checkout, with the same Ashburn Terraform state and PhoenixNAP credentials:
+## 6. Tear down the complete lab
+
+Back up any data you need; this **irreversibly destroys** ESXi and its VMs,
+the local datastore, the installer if present, and the dedicated /29.
 
 ```bash
 terraform -chdir=ashburn state list
 terraform -chdir=ashburn plan -destroy -out=teardown.tfplan
 terraform -chdir=ashburn show teardown.tfplan
+```
+
+Review the plan for **only** intended Ashburn resources. If state is empty
+but servers exist in PhoenixNAP, **STOP** and recover/import state rather
+than assuming `0 to destroy` means billing will end.
+
+```bash
 terraform -chdir=ashburn apply teardown.tfplan
 terraform -chdir=ashburn state list
 ```
 
-Inspect the plan carefully **before** applying: it should delete the ESXi
-host, the optional installer (if still in state) and `pnap_ip_block.esxi_29`.
-Deleting ESXi also destroys its local VMs and data. The separate /29 is owned
-by Terraform (ESXi has `delete_ip_blocks = false`), so it must be explicitly
-destroyed too. The installer has `delete_ip_blocks = true` for its own default
-allocation.
+Finally check PhoenixNAP **Servers**, **Public IP Allocations** and billing.
+The ESXi resource uses `delete_ip_blocks = false` because Terraform separately
+manages the /29; the installer uses `delete_ip_blocks = true` for its
+default allocation. Verify both are gone. Never delete state before teardown.
 
-Finally verify in **PhoenixNAP's portal** that the servers and all IP
-allocations are gone and charges have stopped. Do not manually delete servers
-or discard the state as a substitute for Terraform teardown. Saved plan/state
-files can contain credentials; never commit them.
-
-This teardown affects **Ashburn only**, not the legacy Seattle state.
+**Troubleshooting:** If Terraform reports out-of-stock (HTTP 406), use
+the live PhoenixNAP product availability API/portal before selecting a new SKU.
+If Ansible complains about `requests`, use the same activated Python 3.14
+environment for Ansible and its VMware modules. Do not use the root/Seattle
+Terraform state for any Ashburn operation.
