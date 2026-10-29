@@ -16,3 +16,4 @@ local/
 *.ova
 *.ovf
 *.zip
+.venv/
