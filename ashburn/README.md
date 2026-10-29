@@ -29,6 +29,18 @@ Use section 6.
 
 ## 1. Configure the empty stack
 
+A fresh clone starts on `main`, which has no `ashburn/` directory. Use:
+
+```bash
+git clone https://github.com/waynedovey/phoenixnap-vsphere-terraform.git
+cd phoenixnap-vsphere-terraform
+git switch --track origin/feat/ashburn-esxi-temporary-vcsa-installer
+```
+
+For an existing checkout, `git switch feat/ashburn-esxi-temporary-vcsa-installer`,
+then `git pull --ff-only`. Keep existing ignored state and tfvars files;
+never force checkout if Git reports a conflict.
+
 Preflight on the Mac: `terraform`, `jq`, `govc`, `python3`, `ssh`, `scp`,
 and PhoenixNAP API environment variables `PNAP_CLIENT_ID` and
 `PNAP_CLIENT_SECRET`. Obtain VMware VCSA 8 media legally, a vendor-verified
