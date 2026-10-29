@@ -4,7 +4,7 @@ set -Eeuo pipefail
 exec >>/var/log/vcsa-installer-bootstrap.log 2>&1
 echo "Starting VCSA media preparation"
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates python3 jq libnsl2
+DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates python3 jq
 install -d -m 0755 /opt/vcsa/media /mnt/vcsa
 ISO_URL="${iso_url}"
 ISO_SHA256="${iso_sha256}"
