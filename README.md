@@ -29,6 +29,54 @@ optional installer, confirm the old environment was retired, verify the vendor
 ESXi image and ISO checksum, and approve the live hourly quote **before**
 applying. Provisioning starts hourly billing.
 
+## Existing ESXi: deploy **only** the temporary Ubuntu installer
+
+First, check whether an installer is already tracked (or whether VCSA is
+already healthy and no installer is needed):
+
+```bash
+terraform -chdir=ashburn state list
+terraform -chdir=ashburn output installer_id
+terraform -chdir=ashburn output installer_public_ip_addresses
+```
+
+An existing installer appears as `pnap_server.installer[0]`. Check its
+actual existence and status in PhoenixNAP before creating another server.
+Earlier lab runs used installer `131.153.155.201`; **do not assume it still
+exists or is the IP for a new deployment**.
+
+If the installer is absent and you need it, edit your **existing**
+`ashburn/terraform.tfvars`:
+
+- Set `enable_installer = true`, keeping `enable_esxi = true`.
+- Keep the **same** ESXi type and networking as the working host; do not
+  overwrite your tfvars with the example or change your ESXi SKU.
+- Use an available installer SKU (previously `s2.c1.small`).
+- Set `vcsa_iso_sha256` to an independently vendor-verified digest; an empty
+  digest deliberately skips ISO download.
+- Recheck the live combined hourly cost and existing approval flags.
+
+Then **review before applying**:
+
+```bash
+terraform -chdir=ashburn plan -out=installer-only.tfplan
+terraform -chdir=ashburn show installer-only.tfplan
+```
+
+For this incremental step, the plan must say **1 to add, 0 to change,
+0 to destroy**, and the only creation must be
+`pnap_server.installer[0]`. If ESXi or the /29 would change, **STOP**.
+
+```bash
+terraform -chdir=ashburn apply installer-only.tfplan
+terraform -chdir=ashburn output installer_id
+terraform -chdir=ashburn output installer_public_ip_addresses
+```
+
+Find the actual SSH address in the PhoenixNAP console and check ISO readiness
+as shown in the [Ashburn runbook](ashburn/README.md). This instance is billed
+hourly until you explicitly retire it.
+
 Next, finish the guest installation and host inventory:
 
 1. Create/check ESXi `vcsa-public` port group on VLAN 3.
