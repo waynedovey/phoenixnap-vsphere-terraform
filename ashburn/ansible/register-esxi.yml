@@ -4,6 +4,9 @@
   connection: local
   gather_facts: false
   vars:
+    # Local VMware modules must use the same Python as ansible-playbook.
+    # Otherwise macOS can discover Apple CLT Python without requests/pyVmomi.
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
     vcenter_ip: "{{ lookup('ansible.builtin.env', 'ASHBURN_VCENTER_IP') }}"
     vcenter_user: "{{ lookup('ansible.builtin.env', 'ASHBURN_VCENTER_USERNAME') | default('administrator@vsphere.local', true) }}"
     vcenter_password: "{{ lookup('ansible.builtin.env', 'VCSA_SSO_PASSWORD') }}"
