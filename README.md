@@ -1,59 +1,54 @@
-# PhoenixNAP vSphere 8 lab — Ashburn
+# PhoenixNAP vSphere 8 — Ashburn
 
-One repository: **`phoenixnap-vsphere-terraform`**. All commands run from its root on the
-**`feat/ashburn-esxi-temporary-vcsa-installer`** branch. Do **not** use root-level
-Terraform files (legacy Seattle); use **`terraform -chdir=ashburn`** exclusively.
+**One repo:** `phoenixnap-vsphere-terraform`. The active lab is under
+`ashburn/` on branch `feat/ashburn-esxi-temporary-vcsa-installer`.
+Always run Terraform with **`-chdir=ashburn`**; root-level Terraform
+files/state belong to the old Seattle setup.
 
-| Component | Location | Provisioner |
-| --- | --- | --- |
-| ESXi 8 bare-metal host | PhoenixNAP **ASH** | Terraform `pnap_server.esxi` |
-| Temporary Ubuntu ISO installer | Separate PhoenixNAP **ASH** server | Terraform `pnap_server.installer` |
-| vCenter Server Appliance (VCSA) | **VM on ESXi**, not a third server | VMware CLI from Ubuntu |
-| Datacenter + ESXi registration | vCenter inventory | Ansible |
+| Component | Where it runs |
+| --- | --- |
+| ESXi 8 | PhoenixNAP bare-metal server in **ASH** |
+| Temporary Ubuntu ISO installer | **Second** PhoenixNAP server in **ASH** |
+| vCenter Server Appliance | **VM on ESXi** (not another PhoenixNAP server) |
+| Datacenter and host registration | Ansible against the new vCenter |
 
-## 0. If restarting after manual deletion
+## 1. Start with a clean account
 
-**Only when Ashburn Terraform state is empty**, an old lab can be cleaned up in the PhoenixNAP UI:
+If the earlier Ashburn Terraform **state is empty** and you're deliberately
+starting over:
 
-1. Back up any VMs/data needed; deleting ESXi permanently deletes the local VCSA and datastore contents.
-2. Delete **both** Ashburn servers if present: `esxi-01` and `vcsa-installer-ash`.
-3. Under **Networking → Public IP Allocations**, remove the old ESXi **/29**
-   and any remaining installer/default allocation. Unused IP blocks can still incur charges.
-4. Confirm **no old Ashburn servers/IP allocations remain** and billing has stopped.
-5. Run `terraform -chdir=ashburn state list`. If it lists managed resources,
-   **STOP** and reconcile state. Don't delete infrastructure behind Terraform's back.
+1. Back up anything needed. In PhoenixNAP **Servers**, delete the old
+   `esxi-01` and `vcsa-installer-ash` if present.
+2. In **Networking → Public IP Allocations**, delete the unused ESXi
+   **/29** and any remaining installer/default IP allocations.
+3. Check both Servers/IP Allocations and **billing** until no old Ashburn
+   resources remain. A retained IP allocation can keep costing money.
 
-This manual reset is an **exception** for lost/empty state. Once Terraform owns the new lab,
-use the teardown commands below—not the UI.
+**Only use this manual UI cleanup for a lost/empty state.** If Terraform
+still tracks resources, use the teardown section instead. Deleting ESXi
+permanently destroys VCSA and any VM data.
 
-## 1. Configure (Mac)
+## 2. Provision the new lab (Mac)
 
-If cloning for the first time (the default `main` branch does **not** contain
-`ashburn/`):
-
-```bash
-git clone https://github.com/waynedovey/phoenixnap-vsphere-terraform.git
-cd phoenixnap-vsphere-terraform
-git switch --track origin/feat/ashburn-esxi-temporary-vcsa-installer
-```
-
-If the repository already exists, switch it to the Ashburn feature branch
-before continuing. Never force a switch across local changes.
-
-Requirements: `terraform`, `jq`, `govc`, `python3`, `ssh`, `scp`,
-PhoenixNAP credentials (`PNAP_CLIENT_ID` and `PNAP_CLIENT_SECRET`),
-authorized VMware media, and any required PhoenixNAP approval to run VCSA.
+For a fresh clone, follow the branch instructions in
+[the complete runbook](ashburn/README.md#1-configure-the-empty-stack).
+In your existing checkout:
 
 ```bash
 cd /Users/wdovey/OCP/phoenixnap-vsphere-terraform
-git branch --show-current
+git fetch origin
+git switch feat/ashburn-esxi-temporary-vcsa-installer
+git pull --ff-only
 cp -n ashburn/terraform.tfvars.example ashburn/terraform.tfvars
 chmod 600 ashburn/terraform.tfvars
 vim ashburn/terraform.tfvars
 ```
 
-For a **verified clean rebuild**, set the following in `ashburn/terraform.tfvars`
-(reconfirm hardware stock, required approvals and actual prices first):
+Requirements: Terraform, `jq`, `govc`, Python 3, SSH/SCP, PhoenixNAP
+API credentials, authorized VCSA media and a **vendor-verified ISO SHA-256**.
+
+Set these in `ashburn/terraform.tfvars` after confirming approvals, hardware
+stock and current pricing (the SKUs worked previously but may change):
 
 ```hcl
 enable_esxi              = true
@@ -64,17 +59,13 @@ approve_hourly_costs     = true
 esxi_type                = "s2.c2.medium"
 installer_type           = "s2.c1.small"
 maximum_hourly_usd       = 1.00
-management_allowed_cidrs = ["0.0.0.0/0"]
-vcsa_iso_sha256          = "REPLACE_WITH_INDEPENDENTLY_VENDOR_VERIFIED_SHA256"
+vcsa_iso_sha256          = "REPLACE_WITH_VENDOR_VERIFIED_64_HEX_SHA256"
 ```
 
-`0.0.0.0/0` exposes management to the Internet; restrict it to your own
-`/32` when possible. Set `vcsa_iso_url` to an authorized source as needed.
-The default URL is an **unofficial mirror**. Confirm SHA-256 against a
-**trusted vendor source**. An empty checksum makes cloud-init **skip** the ISO.
-Never commit credentials or state.
-
-## 2. Provision **both** PhoenixNAP servers
+The default ISO URL is an **unofficial mirror**; use an authorized source
+and independently verified checksum. An empty checksum **skips ISO download**.
+Restrict `management_allowed_cidrs` to your IP (`/32`) if possible;
+`0.0.0.0/0` exposes ESXi management to the Internet.
 
 ```bash
 terraform -chdir=ashburn init
@@ -84,38 +75,35 @@ terraform -chdir=ashburn plan -out=provision.tfplan
 terraform -chdir=ashburn show provision.tfplan
 ```
 
-Only if the console is clean and the state is empty should the fresh plan create:
-`pnap_ip_block.esxi_29[0]`, `pnap_server.esxi[0]` and
-`pnap_server.installer[0]` (**3 add, 0 change, 0 destroy**).
-Stop if it replaces/deletes anything. Review quoted hourly costs and stock first.
+A completely clean first run should be **3 add, 0 change, 0 destroy**:
+ESXi, installer and ESXi /29. **Stop** if any existing resources would be
+replaced/deleted or if the console still contains the old lab. Review costs.
 
 ```bash
 terraform -chdir=ashburn apply provision.tfplan
-terraform -chdir=ashburn state list
 terraform -chdir=ashburn output
 ```
 
-**Preserve `ashburn/terraform.tfstate`** securely outside Git: it can contain
-passwords and is required to tear down the lab.
+**Keep `ashburn/terraform.tfstate` securely**; it contains IDs and may contain
+passwords. Never commit it or copy the old Seattle state into `ashburn/`.
 
-## 3. Install vCenter **inside ESXi**
+## 3. Install vCenter and register ESXi
 
-Terraform creates the **installer server and verified ISO media**, not VCSA itself.
+Terraform creates **both PhoenixNAP servers** and prepares verified ISO media.
+It does **not** run the VMware installer automatically.
 
-1. Connect `govc` to the new ESXi. Check/create the `vcsa-public` port group on
-   PhoenixNAP's verified public **VLAN 3**.
-2. Get the Ubuntu installer's **primary public IP** from the console
-   (Terraform may show an IP range). SSH in and check `/opt/vcsa/MEDIA_READY`.
-3. Copy VMware's `embedded_vCSA_on_ESXi.json` from the mounted ISO.
-   Use `scripts/render-vcsa-config.py` to fill in the **current Terraform IPs**.
-4. Copy the generated JSON and `scripts/vcsa.py` to Ubuntu. Enter passwords
-   privately on Ubuntu Bash; run `check`, `precheck`, then approved `deploy`.
+1. Use `govc` to verify ESXi and the `vcsa-public` port group (public VLAN 3).
+2. Get the Ubuntu server's primary IP from PhoenixNAP and confirm
+   `/opt/vcsa/MEDIA_READY`.
+3. Use `scripts/render-vcsa-config.py` to generate a private VCSA JSON
+   from the **new** Terraform IPs, then run VMware CLI `check`, `precheck`
+   and approved `deploy` on Ubuntu.
+4. When VCSA is ready, register ESXi as a standalone host in
+   **Datacenter** using Ansible.
 
-Use the exact commands in the **[VCSA installation guide](ashburn/README.md#3-deploy-vcsa-from-the-temporary-ubuntu-server)**.
+**[Full copy/paste commands for ISO, networking and VCSA](ashburn/README.md#3-deploy-vcsa-from-the-temporary-ubuntu-server)**
 
-## 4. Register ESXi in vCenter (Ansible)
-
-After VCSA is healthy, from the repo root on the Mac:
+Ansible once VCSA is working:
 
 ```bash
 brew install python@3.14
@@ -126,26 +114,21 @@ ansible-galaxy collection install -r ashburn/ansible/requirements.yml
 bash ashburn/scripts/register-esxi.sh
 ```
 
-This prompts for the VCSA SSO password, creates **Datacenter** if missing
-and registers ESXi idempotently. It **never formats disks**.
-[Ansible details](ashburn/ansible/README.md).
+## 4. Retire only the temporary installer
 
-## 5. Remove the temporary installer (save hourly cost)
-
-Once VCSA works, keep ESXi + VCSA but retire the **separate Ubuntu server**:
+After VCSA works, keep ESXi + VCSA but remove the **second server**:
 
 ```bash
 bash ashburn/scripts/retire-installer.sh
 ```
 
-Confirm its exact server ID; then edit `ashburn/terraform.tfvars` to
-`enable_installer = false` so future applies don't recreate it. Verify the
-installer/default IP allocation was removed in PhoenixNAP.
+Confirm its exact ID, then set `enable_installer = false` in
+`ashburn/terraform.tfvars`. Verify its default public IP allocation is gone.
 
-## 6. Tear down **everything** when finished
+## 5. Tear down everything
 
-**Irreversible:** ESXi, VCSA, VMs, local datastores, optional installer and
-the dedicated `/29` will be deleted.
+**Permanent deletion** of ESXi, VCSA, VMs, datastore data, optional
+installer and /29:
 
 ```bash
 terraform -chdir=ashburn state list
@@ -153,20 +136,19 @@ terraform -chdir=ashburn plan -destroy -out=teardown.tfplan
 terraform -chdir=ashburn show teardown.tfplan
 ```
 
-Check the plan contains **only Ashburn resources**. Then—and only then:
+Review: **only intended Ashburn resources** may be destroyed. Then:
 
 ```bash
 terraform -chdir=ashburn apply teardown.tfplan
 terraform -chdir=ashburn state list
 ```
 
-Check PhoenixNAP **Servers**, **Public IP Allocations**, and billing screens
-to confirm charges stopped. Empty state does not prove untracked servers are gone.
+Finally verify **Servers, Public IP Allocations and billing** in PhoenixNAP.
+An empty state alone does not prove an untracked server was deleted.
 
-> Storage: the previous ESXi hardware exposed **one** Micron NVMe boot drive
-> holding ESXi, `OSDATA` and `datastore1`. **Never format it**. Disk formatting
-> is not part of this automation.
+**Do not format the ESXi boot drive.** The previous host exposed one Micron
+NVMe holding ESXi, `OSDATA` and `datastore1`; no disk formatting is automated.
 
-Full guide: [ashburn/README.md](ashburn/README.md).
-Historical Seattle notes: [docs/seattle-legacy.md](docs/seattle-legacy.md).
-The `.old` directories and root-level Terraform state are **not** for Ashburn.
+[Detailed Ashburn runbook](ashburn/README.md) ·
+[Ansible instructions](ashburn/ansible/README.md) ·
+[Legacy Seattle notes](docs/seattle-legacy.md)
