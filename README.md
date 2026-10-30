@@ -6,11 +6,16 @@ For a fresh install, clone the `main` branch and run commands from `phoenixnap-v
 
 ## Create (new lab only)
 
-Set PhoenixNAP credentials (`PNAP_CLIENT_ID`, `PNAP_CLIENT_SECRET`). Copy the example only if `terraform.tfvars` is absent; edit it to enable both servers, set correct SKUs and approval flags, and verify hourly pricing. Start only after checking the PhoenixNAP console and Ashburn state contain **no old resources**.
+**Authentication:** Terraform automatically reads `~/.pnap/config.yaml` (`/Users/wdovey/.pnap/config.yaml` on this Mac). It must contain `clientId` and `clientSecret` from the PhoenixNAP portal. Keep the file outside Git and do **not** copy its contents into Terraform files. Unset `PNAP_CLIENT_ID` and `PNAP_CLIENT_SECRET` so old environment values cannot override the file.
+
+Copy the example only if `terraform.tfvars` is absent; edit it to enable both servers, set correct SKUs and approval flags, and verify hourly pricing. Start only after checking the PhoenixNAP console and Ashburn state contain **no old resources**.
 
 ```bash
 git clone --branch main --single-branch https://github.com/waynedovey/phoenixnap-vsphere-terraform.git
 cd phoenixnap-vsphere-terraform
+test -r ~/.pnap/config.yaml
+chmod 600 ~/.pnap/config.yaml
+unset PNAP_CLIENT_ID PNAP_CLIENT_SECRET
 cp -n ashburn/terraform.tfvars.example ashburn/terraform.tfvars
 vim ashburn/terraform.tfvars
 terraform -chdir=ashburn init
