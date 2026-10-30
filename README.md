@@ -2,14 +2,15 @@
 
 **Terraform** creates an Ashburn ESXi server, public `/29` and temporary Ubuntu installer. **Ansible** stages the VCSA ISO, installs vCenter **inside ESXi**, then registers the host. ESXi itself comes from PhoenixNAP's image.
 
-Run commands from `phoenixnap-vsphere-terraform` on branch `feat/ashburn-esxi-temporary-vcsa-installer`. **Always use `-chdir=ashburn`**; root Terraform files are legacy Seattle.
+For a fresh install, clone the `main` branch and run commands from `phoenixnap-vsphere-terraform`. **Always use `-chdir=ashburn`**; root Terraform files are legacy Seattle.
 
 ## Create (new lab only)
 
 Set PhoenixNAP credentials (`PNAP_CLIENT_ID`, `PNAP_CLIENT_SECRET`). Copy the example only if `terraform.tfvars` is absent; edit it to enable both servers, set correct SKUs and approval flags, and verify hourly pricing. Start only after checking the PhoenixNAP console and Ashburn state contain **no old resources**.
 
 ```bash
-git pull --ff-only
+git clone --branch main --single-branch https://github.com/waynedovey/phoenixnap-vsphere-terraform.git
+cd phoenixnap-vsphere-terraform
 cp -n ashburn/terraform.tfvars.example ashburn/terraform.tfvars
 vim ashburn/terraform.tfvars
 terraform -chdir=ashburn init
