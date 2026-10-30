@@ -1,6 +1,6 @@
 # Ashburn — manual installation and troubleshooting reference
 
-**Manual fallback:** The recommended Ansible installation path is documented in [VCSA Ansible guide](../docs/vcsa-ansible.md).\n\nThis guide is for the **`phoenixnap-vsphere-terraform`** folder, checked out on
+**Manual fallback:** The recommended Ansible installation path is documented in [VCSA Ansible guide](vcsa-ansible.md).\n\nThis guide is for the **`phoenixnap-vsphere-terraform`** folder, checked out on
 `feat/ashburn-esxi-temporary-vcsa-installer`. Run all Mac commands from the
 **repository root**. Only use **`terraform -chdir=ashburn`**: the root Terraform
 files and root `terraform.tfstate` belong to legacy Seattle work.
@@ -260,7 +260,7 @@ The wrapper reads the new ESXi IP and root password from Terraform state
 and the VCSA IP from `private/vcsa-config-ashburn.json`. It asks for the
 VCSA SSO password, creates **Datacenter** if needed and registers ESXi
 under `/Datacenter/host`. Re-running it is safe; it **does not format storage**.
-See [Ansible notes](ansible/README.md).
+See [Ansible notes](../ashburn/ansible/README.md).
 
 Verify through vCenter-connected `govc` (set `GOVC_URL` to the VCSA `/sdk`,
 `GOVC_USERNAME` to `administrator@vsphere.local`, and enter the SSO password):
