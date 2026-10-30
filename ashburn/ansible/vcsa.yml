@@ -73,8 +73,10 @@
         stdin: |
           set -Eeuo pipefail
           printf '%s  %s\n' '{{ iso_sha }}' '{{ remote_iso }}' | sha256sum --check --status
-          install -d -m 0755 /mnt/vcsa
-          if ! mountpoint -q /mnt/vcsa; then
+          if mountpoint -q /mnt/vcsa; then
+            echo 'Verified VCSA ISO is already mounted'
+          else
+            mkdir -p /mnt/vcsa
             mount -o loop,ro '{{ remote_iso }}' /mnt/vcsa
           fi
           test -f /mnt/vcsa/vcsa-cli-installer/lin64/vcsa-deploy
