@@ -36,8 +36,18 @@ def main():
     ap.add_argument("--output", type=Path, default=Path("private/vcsa-config-ashburn.json"))
     ap.add_argument("--stack", type=Path, default=Path("ashburn"))
     ap.add_argument("--dns", action="append", default=[], help="DNS IP (repeatable)")
-    ap.add_argument("--ntp", default="pool.ntp.org")
+    ap.add_argument("--time-source", choices=("host", "ntp"), default="host",
+                    help="Time source: synced ESXi host (default) or explicit NTP")
+    ap.add_argument("--ntp", default="pool.ntp.org",
+                    help="NTP server when --time-source=ntp")
+    ap.add_argument("--portgroup", required=True,
+                    help="Existing PhoenixNAP ESXi public.<VLAN> port group")
     args = ap.parse_args()
+
+    if not args.portgroup.startswith("public.") or not args.portgroup[7:].isdigit():
+        raise ValueError("Port group must be an existing PhoenixNAP public.<VLAN> network")
+    if args.time_source == "ntp" and not args.ntp.strip():
+        raise ValueError("Supply an NTP server when --time-source=ntp")
 
     if args.output.exists():
         raise ValueError(f"Output exists: {args.output}; archive it before a new lab")
@@ -68,7 +78,7 @@ def main():
         ("new_vcsa", "esxi", "hostname"): str(esxi),
         ("new_vcsa", "esxi", "username"): "root",
         ("new_vcsa", "esxi", "password"): "FILL_RUNTIME",
-        ("new_vcsa", "esxi", "deployment_network"): "vcsa-public",
+        ("new_vcsa", "esxi", "deployment_network"): args.portgroup,
         ("new_vcsa", "esxi", "datastore"): "datastore1",
         ("new_vcsa", "appliance", "name"): "vcsa-ash",
         ("new_vcsa", "appliance", "deployment_option"): "tiny",
@@ -85,9 +95,17 @@ def main():
     for keys, value in changes.items():
         assign(config, keys, value)
 
-    current_ntp = field(config, ("new_vcsa", "os", "ntp_servers"))
-    assign(config, ("new_vcsa", "os", "ntp_servers"),
-           [args.ntp] if isinstance(current_ntp, list) else args.ntp)
+    os_settings = field(config, ("new_vcsa", "os"))
+    if args.time_source == "host":
+        # The NTP field must be absent, not an empty server string:
+        # VMware ignores Tools sync when NTP servers are configured.
+        os_settings.pop("ntp_servers", None)
+        os_settings["time_tools_sync"] = True
+    else:
+        ntp_current = os_settings.get("ntp_servers")
+        os_settings["ntp_servers"] = [args.ntp] if isinstance(ntp_current, list) else args.ntp
+        os_settings["time_tools_sync"] = False
+
     appliance = field(config, ("new_vcsa", "appliance"))
     if "thin_disk_mode" in appliance:
         appliance["thin_disk_mode"] = True
@@ -110,7 +128,8 @@ def main():
 
     print(f"Wrote {args.output} (mode 0600; no passwords)")
     print(f"ESXi={esxi}  VCSA={vcsa}/{subnet.prefixlen}  gateway={gateway}")
-    print("Verify that the VCSA IP is unused and vcsa-public VLAN 3 reaches the gateway.")
+    print(f"Network={args.portgroup}  Time source={args.time_source}")
+    print("Confirm the VCSA IP is unused and its public network reaches the gateway.")
 
 
 if __name__ == "__main__":
