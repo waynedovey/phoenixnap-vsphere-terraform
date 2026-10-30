@@ -15,18 +15,29 @@ cp -n ashburn/terraform.tfvars.example ashburn/terraform.tfvars
 vim ashburn/terraform.tfvars
 terraform -chdir=ashburn init
 terraform -chdir=ashburn validate
+terraform -chdir=ashburn state list
+```
 
+If state is **empty**, and the PhoenixNAP portal confirms no old Ashburn servers or IP allocations, allocate the public `/29` first:
+
+```bash
 terraform -chdir=ashburn plan -target='pnap_ip_block.esxi_29[0]' -out=ip-block-only.tfplan
-terraform -chdir=ashburn show ip-block-only.tfplan    # expect 1 add
+terraform -chdir=ashburn show ip-block-only.tfplan
 terraform -chdir=ashburn apply ip-block-only.tfplan
+```
 
+Expect **1 add**. If `pnap_ip_block.esxi_29[0]` is **already in state**, **skip this entire allocation step**; never create a duplicate. Verify its ID and API access first. A **403** during refresh means STOP: confirm the same PhoenixNAP account/credentials and whether the block exists in the portal. Never remove a state entry just to silence a 403.
+
+If the `/29` is managed and accessible but **both servers are absent**, run:
+
+```bash
 terraform -chdir=ashburn plan -out=servers.tfplan
-terraform -chdir=ashburn show servers.tfplan          # expect 2 adds
+terraform -chdir=ashburn show servers.tfplan
 terraform -chdir=ashburn apply servers.tfplan
 terraform -chdir=ashburn output
 ```
 
-Inspect each plan **before apply**. Stop if anything is deleted/replaced or the ESXi `/29` block ID is `null`. Do not repeat creation commands on an existing deployment.
+Inspect each plan **before apply** (expect **2 adds** for the servers). Stop if anything is deleted/replaced or the ESXi `/29` block ID is `null`. Do not repeat creation commands when either server is already managed.
 
 ## Install vCenter (Ansible)
 
@@ -36,7 +47,7 @@ Find Ubuntu's **primary public IP** in PhoenixNAP. Use an **authorized VMware IS
 bash ashburn/scripts/setup-ansible.sh
 export INSTALLER_IP="UBUNTU_PRIMARY_IP"
 export VCSA_ISO_SHA256="VENDOR_VERIFIED_64_HEX_SHA256"
-# export VCSA_ISO_PATH="/path/to/VMware-VCSA.iso"  # only if missing on Ubuntu
+# export VCSA_ISO_PATH="/path/to/VMware-VCSA.iso"
 export VCSA_PUBLIC_VLAN_CONFIRMED=YES
 
 bash ashburn/scripts/vcsa.sh prepare
@@ -58,7 +69,7 @@ Deployment requires typing `DEPLOY-VCENTER` and prompts for passwords. See [ISO,
 ```bash
 terraform -chdir=ashburn state list
 terraform -chdir=ashburn plan -destroy -out=teardown.tfplan
-terraform -chdir=ashburn show teardown.tfplan   # verify ONLY intended Ashburn deletions
+terraform -chdir=ashburn show teardown.tfplan
 terraform -chdir=ashburn apply teardown.tfplan
 ```
 
