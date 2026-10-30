@@ -56,6 +56,9 @@ export VCSA_ISO_SHA256="VENDOR_VERIFIED_64_HEX_SHA256"
 export VCSA_PUBLIC_VLAN_CONFIRMED=YES
 
 bash ashburn/scripts/vcsa.sh prepare
+# Verify the ESXi TLS certificate SHA-256 against the trusted ESXi host first.
+# See docs/vcsa-ansible.md for the command and verification instructions.
+export VCSA_ESXI_CERT_SHA256="VERIFIED_ESXI_CERT_SHA256"
 bash ashburn/scripts/vcsa.sh precheck
 
 # Only after required PhoenixNAP/VMware approvals:
