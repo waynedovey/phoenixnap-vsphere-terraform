@@ -22,6 +22,11 @@ fi
 if [[ "$stage" != prepare ]]; then
   : "${VCSA_ESXI_CERT_SHA256:?Set VCSA_ESXI_CERT_SHA256 to the independently verified ESXi certificate SHA-256}"
   [[ "${VCSA_ESXI_CERT_SHA256//:/}" =~ ^[a-fA-F0-9]{64}$ ]] || { echo "Invalid ESXi certificate fingerprint." >&2; exit 1; }
+  if [[ "${ESXI_NTP_SYNC_CONFIRMED:-}" != YES ]]; then
+    echo "STOP: verify ESXi reports 'Time Synchronized: true' using esxcli system ntp get." >&2
+    echo "Then set ESXI_NTP_SYNC_CONFIRMED=YES for this lab." >&2
+    exit 1
+  fi
 fi
 
 installer_id="$(terraform -chdir=ashburn output -raw installer_id)"
