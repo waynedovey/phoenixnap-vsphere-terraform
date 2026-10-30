@@ -165,6 +165,7 @@
             'VCSA_ROOT_PASSWORD': {{ lookup('env', 'VCSA_ROOT_PASSWORD') | to_json }},
             'VCSA_SSO_PASSWORD': {{ lookup('env', 'VCSA_SSO_PASSWORD') | to_json }},
             'VCSA_INSTALLER_DIR': '/mnt/vcsa',
+            'VCSA_ESXI_CERT_SHA256': {{ lookup('env', 'VCSA_ESXI_CERT_SHA256') | to_json }},
           })
           sys.exit(subprocess.run(
             ['python3', 'vcsa.py', 'precheck', '--template', 'vcsa-config.json'],
@@ -191,6 +192,7 @@
             'VCSA_ROOT_PASSWORD': {{ lookup('env', 'VCSA_ROOT_PASSWORD') | to_json }},
             'VCSA_SSO_PASSWORD': {{ lookup('env', 'VCSA_SSO_PASSWORD') | to_json }},
             'VCSA_INSTALLER_DIR': '/mnt/vcsa',
+            'VCSA_ESXI_CERT_SHA256': {{ lookup('env', 'VCSA_ESXI_CERT_SHA256') | to_json }},
             'PNAP_VCENTER_SUPPORT_CONFIRMED': 'YES',
             'VCSA_DEPLOY_APPROVED': 'YES',
           })
