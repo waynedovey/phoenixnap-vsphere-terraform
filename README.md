@@ -1,126 +1,80 @@
 # PhoenixNAP vSphere 8 Lab
 
-Deploy a VMware **ESXi 8 + vCenter** evaluation lab on PhoenixNAP bare metal in **Ashburn (ASH)** using Terraform and Ansible.
+**Terraform** creates ESXi 8, an Ashburn public `/29`, and a temporary Ubuntu installer server. **Ansible** prepares the VMware ISO, installs **vCenter as a VM on ESXi**, and registers the host.
 
-| Component | Where it runs |
-| --- | --- |
-| **ESXi host** (`esxi-01`) | PhoenixNAP bare-metal server |
-| **VCSA installer** (`vcsa-installer-ash`) | Second, temporary PhoenixNAP Ubuntu server |
-| **vCenter Server (VCSA)** | VM **inside ESXi** — not a third server |
-| **Public networking** | Dedicated IPv4 `/29` for ESXi + VCSA |
+Run everything from `phoenixnap-vsphere-terraform` on branch `feat/ashburn-esxi-temporary-vcsa-installer`. **Always use `terraform -chdir=ashburn`**, never root-level Terraform (legacy Seattle).
 
-> **Important:** Always run Terraform with `-chdir=ashburn`. The Terraform files in the repository root are from the old Seattle lab. Keep `ashburn/terraform.tfstate` safe and out of Git.
+## Create
 
-## Quickstart: Create the lab
-
-**Prerequisites:** Terraform, `jq`, PhoenixNAP API credentials (`PNAP_CLIENT_ID` / `PNAP_CLIENT_SECRET`), confirmed ASH hardware availability and pricing, an authorized VCSA 8 ISO with a trusted SHA-256 checksum, and any required VMware/PhoenixNAP approvals.
-
-Run from the **`phoenixnap-vsphere-terraform` repository root** on branch `feat/ashburn-esxi-temporary-vcsa-installer`.
-
-### 1. Configure
+Set PhoenixNAP API credentials (`PNAP_CLIENT_ID` / `PNAP_CLIENT_SECRET`), then:
 
 ```bash
 git pull --ff-only
 cp -n ashburn/terraform.tfvars.example ashburn/terraform.tfvars
-chmod 600 ashburn/terraform.tfvars
 vim ashburn/terraform.tfvars
-```
-
-For a **brand-new** lab, set these values after verifying the approval conditions and live quote:
-
-```hcl
-enable_esxi             = true
-enable_installer        = true
-confirm_seattle_retired = true
-confirm_esxi_image      = true
-approve_hourly_costs    = true
-
-esxi_type           = "s2.c2.medium"
-installer_type      = "s2.c1.small"
-maximum_hourly_usd  = 1.00
-```
-
-The server types are **previously working examples**, not guaranteed stock. Restrict `management_allowed_cidrs` to your trusted IP if possible.
-
-**ISO requirement:** Configure an **authorized** `vcsa_iso_url` and a vendor-verified, 64-character `vcsa_iso_sha256` in your private `terraform.tfvars`. The repository's default ISO mirror is unofficial; if the checksum is blank, the Ubuntu bootstrap **skips the ISO download**. Don't overwrite an existing `terraform.tfvars` with the example.
-
-### 2. Allocate the public `/29`
-
-Only start a **fresh** build when the PhoenixNAP console shows no old Ashburn servers/IP allocations and the **Ashburn Terraform state is empty**. These checks avoid duplicate charges.
-
-```bash
 terraform -chdir=ashburn init
-terraform -chdir=ashburn validate
-terraform -chdir=ashburn state list
-
-terraform -chdir=ashburn plan \
-  -target='pnap_ip_block.esxi_29[0]' \
-  -out=ip-block-only.tfplan
-
-terraform -chdir=ashburn show ip-block-only.tfplan
 ```
 
-Expect **1 to add, 0 to change, 0 to destroy** (only the `/29`). Review the plan and price, then:
+In `ashburn/terraform.tfvars`, enable **ESXi** and **installer** and set the confirmation flags only after verifying the approvals, stock and hourly costs. Last used: `s2.c2.medium` / `s2.c1.small`. **Do not overwrite your existing tfvars.**
+
+**Fresh, empty-state lab only:** confirm old Ashburn servers and IP allocations are gone. Allocate the `/29` first, then the two servers:
 
 ```bash
+terraform -chdir=ashburn plan -target='pnap_ip_block.esxi_29[0]' -out=ip-block-only.tfplan
+terraform -chdir=ashburn show ip-block-only.tfplan    # 1 add; review
 terraform -chdir=ashburn apply ip-block-only.tfplan
-terraform -chdir=ashburn state show 'pnap_ip_block.esxi_29[0]'
-```
 
-This one-time two-stage setup ensures the IP block has a real ID before ESXi is created.
-
-### 3. Deploy both servers
-
-```bash
 terraform -chdir=ashburn plan -out=servers.tfplan
-terraform -chdir=ashburn show servers.tfplan
-```
-
-Expect **2 to add, 0 to change, 0 to destroy**: `pnap_server.esxi[0]` and `pnap_server.installer[0]`. The ESXi `server_ip_block.id` must match the `/29` ID allocated above; it must **not** be `null`. [Exact ID check](ashburn/README.md#2-provision-esxi-29-and-temporary-ubuntu).
-
-If anything else would change, **stop**. Otherwise:
-
-```bash
+terraform -chdir=ashburn show servers.tfplan          # 2 add; review
 terraform -chdir=ashburn apply servers.tfplan
-terraform -chdir=ashburn state list
 terraform -chdir=ashburn output
 ```
 
-**Terraform creates the two bare-metal servers, not the vCenter VM.** Follow the [VCSA installation steps](ashburn/README.md#3-deploy-vcsa-from-the-temporary-ubuntu-server) to check the ISO, deploy VCSA inside ESXi, and register the ESXi host with Ansible.
+**STOP** if a plan would modify/delete existing resources or the ESXi public IP block ID is `null`. Never rerun these creation steps if the lab is already provisioned.
 
-## Quickstart: Destroy the lab
+## Install vCenter with Ansible
 
-**Warning:** This permanently deletes ESXi, the vCenter VM, all local VMs/datastore data, the temporary installer (if present), and the dedicated `/29`. Back up anything important first.
+ESXi itself is installed from the **PhoenixNAP ESXi image**; Ansible does **not** install an ESXi ISO. It stages the **VCSA ISO** on Ubuntu and installs vCenter **inside ESXi**.
+
+```bash
+bash ashburn/scripts/setup-ansible.sh
+export INSTALLER_IP="UBUNTU_PRIMARY_IP"         # PhoenixNAP server page
+export VCSA_ISO_SHA256="VENDOR_VERIFIED_SHA256" # 64 hex characters
+# export VCSA_ISO_PATH="/path/to/VCSA.iso"      # Only if cloud-init did not fetch it
+```
+
+Verify PhoenixNAP's public VLAN really is **3**, then run the stages:
+
+```bash
+export VCSA_PUBLIC_VLAN_CONFIRMED=YES
+bash ashburn/scripts/vcsa.sh prepare
+bash ashburn/scripts/vcsa.sh precheck
+```
+
+After the precheck passes **and required PhoenixNAP/VMware approvals are confirmed**:
+
+```bash
+export PNAP_VCENTER_SUPPORT_CONFIRMED=YES
+export VCSA_DEPLOY_APPROVED=YES
+bash ashburn/scripts/vcsa.sh deploy
+bash ashburn/scripts/register-esxi.sh
+```
+
+Passwords are requested privately; deployment requires typing `DEPLOY-VCENTER`. Use an **authorized ISO and independently vendor-verified checksum**; the configured third-party mirror is not an official source. See [Ansible setup and troubleshooting](docs/vcsa-ansible.md).
+
+## Destroy
+
+**Permanent:** removes ESXi, vCenter and all VMs/data, the installer and the dedicated `/29`. Back up anything needed.
 
 ```bash
 terraform -chdir=ashburn state list
 terraform -chdir=ashburn plan -destroy -out=teardown.tfplan
-terraform -chdir=ashburn show teardown.tfplan
-```
-
-**Read the plan.** It must delete only the intended **Ashburn** resources. Then:
-
-```bash
+terraform -chdir=ashburn show teardown.tfplan   # inspect every deletion
 terraform -chdir=ashburn apply teardown.tfplan
-terraform -chdir=ashburn state list
 ```
 
-Finally confirm in PhoenixNAP **Servers**, **Public IP Allocations**, and **Billing** that all resources and charges are gone. **Empty state does not prove untracked servers are deleted.** Never delete Terraform state to tear down infrastructure.
+Check **PhoenixNAP Servers, Public IP Allocations and billing** afterward. Keep Terraform state securely outside Git: an empty state is not proof that untracked resources or billing are gone.
 
-## Remove just the temporary installer
+To remove **only Ubuntu** after vCenter is healthy, use `bash ashburn/scripts/retire-installer.sh`, then set `enable_installer = false` in your tfvars.
 
-Once VCSA is working, you can stop paying for the second server without affecting ESXi or vCenter:
-
-```bash
-bash ashburn/scripts/retire-installer.sh
-```
-
-The script shows a deletion plan and asks you to confirm the exact installer ID. Afterward set `enable_installer = false` in `ashburn/terraform.tfvars` to prevent it being recreated.
-
-## More detail
-
-- [Full Ashburn installation runbook](ashburn/README.md) — network, ISO, vCenter CLI, Ansible, troubleshooting
-- [ESXi registration with Ansible](ashburn/ansible/README.md)
-- [Legacy Seattle notes](docs/seattle-legacy.md)
-
-**Safety:** Never run Terraform at the repository root, never commit state/passwords/plan files, and never format `datastore1` (the previous ESXi host's only NVMe drive contained both ESXi and its datastore).
+[Detailed notes](ashburn/README.md) · [Manual fallback](docs/ashburn-manual.md) · [Ansible install](docs/vcsa-ansible.md)
