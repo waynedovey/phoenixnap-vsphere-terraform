@@ -11,7 +11,7 @@ installer_type         = "s2.c1.small"
 maximum_hourly_usd     = 1.00
 management_allowed_cidrs = ["0.0.0.0/0"]
 
-# Set ONLY to a SHA-256 verified independently from a trusted source.
-# Previously observed digest of the Mac's mirror download (NOT an official checksum):
-# 645fb3debfe33331fed5ffd9971d5286b070f412b56a523a78abdc7bece07e29
+# Supply an authorized ISO URL and an independently vendor-verified SHA-256
+# to enable cloud-init download; otherwise use VCSA_ISO_PATH in the Ansible stage.
+vcsa_iso_url    = ""
 vcsa_iso_sha256 = ""
