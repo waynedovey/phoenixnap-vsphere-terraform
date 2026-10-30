@@ -19,6 +19,10 @@ fi
 : "${VCSA_ISO_SHA256:?Set VCSA_ISO_SHA256 to your vendor-verified 64-character checksum}"
 [[ "$INSTALLER_IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || { echo "Use a single IPv4, not an IP range." >&2; exit 1; }
 [[ "$VCSA_ISO_SHA256" =~ ^[a-fA-F0-9]{64}$ ]] || { echo "Invalid SHA-256." >&2; exit 1; }
+if [[ "$stage" != prepare ]]; then
+  : "${VCSA_ESXI_CERT_SHA256:?Set VCSA_ESXI_CERT_SHA256 to the independently verified ESXi certificate SHA-256}"
+  [[ "${VCSA_ESXI_CERT_SHA256//:/}" =~ ^[a-fA-F0-9]{64}$ ]] || { echo "Invalid ESXi certificate fingerprint." >&2; exit 1; }
+fi
 
 installer_id="$(terraform -chdir=ashburn output -raw installer_id)"
 esxi_id="$(terraform -chdir=ashburn output -raw esxi_id)"
