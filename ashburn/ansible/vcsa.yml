@@ -91,18 +91,19 @@
       changed_when: false
       no_log: true
 
-    - name: Confirm public VLAN before making a port group
-      when: "'vcsa-public' not in portgroups.stdout"
-      ansible.builtin.assert:
-        that: "lookup('env', 'VCSA_PUBLIC_VLAN_CONFIRMED') == 'YES'"
-        fail_msg: "Verify PhoenixNAP public VLAN 3, then set VCSA_PUBLIC_VLAN_CONFIRMED=YES."
+    - name: Discover the existing PhoenixNAP public port group
+      ansible.builtin.set_fact:
+        public_portgroup_names: '{{ portgroups.stdout | regex_findall("(?m)^Name: +(public[.][0-9]+) *$") }}'
 
-    - name: Create only the missing vCenter port group
-      when: "'vcsa-public' not in portgroups.stdout"
-      ansible.builtin.command:
-        argv: [govc, host.portgroup.add, -vswitch, vSwitch0, -vlan, "3", vcsa-public]
-      environment: "{{ govc_env }}"
-      no_log: true
+    - name: Require exactly one existing public port group
+      ansible.builtin.assert:
+        that:
+          - public_portgroup_names | length == 1
+        fail_msg: "Cannot uniquely identify public.<VLAN> on ESXi. Check govc host.portgroup.info; no network changes made."
+
+    - name: Announce the existing public network to be used by VCSA
+      ansible.builtin.debug:
+        msg: "Using PhoenixNAP ESXi port group {{ public_portgroup_names[0] }}; no new port group is created."
 
     - name: Create ignored private directory on Mac
       ansible.builtin.file:
@@ -117,7 +118,17 @@
 
     - name: Generate VCSA configuration from this Ashburn Terraform state
       ansible.builtin.command:
-        argv: [python3, scripts/render-vcsa-config.py, --template, private/embedded_vCSA_on_ESXi.json]
+        argv:
+          - python3
+          - scripts/render-vcsa-config.py
+          - --template
+          - private/embedded_vCSA_on_ESXi.json
+          - --portgroup
+          - "{{ public_portgroup_names[0] }}"
+          - --time-source
+          - "{{ lookup('env', 'VCSA_TIME_SOURCE') | default('host', true) }}"
+          - --ntp
+          - "{{ lookup('env', 'VCSA_NTP_SERVER') | default('pool.ntp.org', true) }}"
         chdir: "{{ root }}"
         creates: "{{ config_file }}"
 
@@ -131,6 +142,42 @@
       ansible.builtin.assert:
         that: "config_esxi.stdout == lookup('env', 'ASHBURN_ESXI_IP')"
         fail_msg: "Private VCSA config contains an old ESXi address. Archive and regenerate it."
+
+    - name: Read generated VCSA port group
+      ansible.builtin.command:
+        argv: [jq, -er, .new_vcsa.esxi.deployment_network, "{{ config_file }}"]
+      register: config_portgroup
+      changed_when: false
+
+    - name: Check for stale configuration from another lab
+      ansible.builtin.assert:
+        that:
+          - config_portgroup.stdout == public_portgroup_names[0]
+        fail_msg: "VCSA JSON targets a different port group. Archive the old private/vcsa-config-ashburn.json and run prepare again."
+
+    - name: Confirm time source and ESXi synchronization before VMware precheck
+      when: stage in ['precheck', 'deploy']
+      ansible.builtin.assert:
+        that:
+          - "lookup('env', 'ESXI_NTP_SYNC_CONFIRMED') == 'YES'"
+        fail_msg: "ESXi must report Time Synchronized: true. Verify with esxcli system ntp get, then set ESXI_NTP_SYNC_CONFIRMED=YES."
+
+    - name: Check whether VCSA VM already exists before deployment
+      when: stage == 'deploy'
+      ansible.builtin.command:
+        argv: [govc, vm.info, vcsa-ash]
+      environment: "{{ govc_env }}"
+      register: existing_vcsa_vm
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Refuse deployment over an existing or failed VCSA VM
+      when: stage == 'deploy'
+      ansible.builtin.assert:
+        that:
+          - existing_vcsa_vm.rc != 0
+        fail_msg: "A VM named vcsa-ash already exists on ESXi. Inspect and explicitly clean up the failed VM before redeploying."
 
     - name: Create private installer working directory on Ubuntu
       ansible.builtin.command:
