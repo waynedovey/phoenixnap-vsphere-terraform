@@ -1,0 +1,17 @@
+# Independent state. This example never provisions anything.
+# Last working ASH SKUs are examples only; check current stock and prices.
+enable_esxi             = false
+enable_installer        = false
+confirm_seattle_retired = false
+confirm_esxi_image      = false
+approve_hourly_costs    = false
+
+esxi_type              = "s2.c2.medium"
+installer_type         = "s2.c1.small"
+maximum_hourly_usd     = 1.00
+management_allowed_cidrs = ["0.0.0.0/0"]
+
+# Set ONLY to a SHA-256 verified independently from a trusted source.
+# Previously observed digest of the Mac's mirror download (NOT an official checksum):
+# 645fb3debfe33331fed5ffd9971d5286b070f412b56a523a78abdc7bece07e29
+vcsa_iso_sha256 = ""

@@ -1,0 +1,93 @@
+---
+- name: Register Ashburn ESXi as a standalone vCenter host
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    # Local VMware modules must use the same Python as ansible-playbook.
+    # Otherwise macOS can discover Apple CLT Python without requests/pyVmomi.
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+    vcenter_ip: "{{ lookup('ansible.builtin.env', 'ASHBURN_VCENTER_IP') }}"
+    vcenter_user: "{{ lookup('ansible.builtin.env', 'ASHBURN_VCENTER_USERNAME') | default('administrator@vsphere.local', true) }}"
+    vcenter_password: "{{ lookup('ansible.builtin.env', 'VCSA_SSO_PASSWORD') }}"
+    esxi_ip: "{{ lookup('ansible.builtin.env', 'ASHBURN_ESXI_IP') }}"
+    esxi_password: "{{ lookup('ansible.builtin.env', 'ESXI_ROOT_PASSWORD') }}"
+    vcenter_env:
+      GOVC_URL: "https://{{ vcenter_ip }}/sdk"
+      GOVC_USERNAME: "{{ vcenter_user }}"
+      GOVC_PASSWORD: "{{ vcenter_password }}"
+      GOVC_INSECURE: "1"
+      GOVC_DATACENTER: "Datacenter"
+
+  tasks:
+    - name: Require all connection details and passwords
+      ansible.builtin.assert:
+        that:
+          - vcenter_ip | length > 0
+          - vcenter_password | length > 0
+          - esxi_ip | length > 0
+          - esxi_password | length > 0
+        fail_msg: "Missing vCenter or ESXi connection details. Run the Ashburn wrapper script."
+      no_log: true
+
+    - name: Verify the target API is vCenter, not an ESXi host
+      ansible.builtin.command:
+        argv: [govc, about]
+      environment: "{{ vcenter_env }}"
+      changed_when: false
+      register: vcenter_about
+      no_log: true
+
+    - name: Require a vCenter endpoint
+      ansible.builtin.assert:
+        that: "'API type:     VirtualCenter' in vcenter_about.stdout or vcenter_about.stdout is search('API type:\\s+VirtualCenter')"
+        fail_msg: "Target is not a vCenter API. Verify the Ashburn VCSA IP."
+      no_log: true
+
+    - name: Discover existing Datacenters
+      ansible.builtin.command:
+        argv: [govc, ls, /]
+      environment: "{{ vcenter_env }}"
+      register: vcenter_inventory
+      changed_when: false
+      no_log: true
+
+    - name: Create Datacenter if absent
+      ansible.builtin.command:
+        argv: [govc, datacenter.create, Datacenter]
+      environment: "{{ vcenter_env }}"
+      when: "'/Datacenter' not in vcenter_inventory.stdout_lines"
+      no_log: true
+
+    - name: Register ESXi as a standalone host under Datacenter
+      vmware.vmware.esxi_host:
+        hostname: "{{ vcenter_ip }}"
+        username: "{{ vcenter_user }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: false
+        datacenter: Datacenter
+        folder: /Datacenter/host
+        folder_paths_are_absolute: true
+        esxi_host_name: "{{ esxi_ip }}"
+        esxi_username: root
+        esxi_password: "{{ esxi_password }}"
+        force_add: false
+        state: present
+      no_log: true
+
+    - name: Verify host inventory
+      ansible.builtin.command:
+        argv: [govc, find, /Datacenter, -type, h]
+      environment: "{{ vcenter_env }}"
+      register: vcenter_hosts
+      changed_when: false
+      no_log: true
+
+    - name: Require at least one registered host
+      ansible.builtin.assert:
+        that: "vcenter_hosts.stdout_lines | length > 0"
+        fail_msg: "No ESXi hosts found after registration. Check vCenter Tasks and Events."
+
+    - name: Display registered host inventory paths
+      ansible.builtin.debug:
+        var: vcenter_hosts.stdout_lines

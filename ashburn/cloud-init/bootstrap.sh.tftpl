@@ -1,0 +1,21 @@
+#!/bin/bash
+# Cloud-init: prepare media only. Does NOT deploy vCenter or store credentials.
+set -Eeuo pipefail
+exec >>/var/log/vcsa-installer-bootstrap.log 2>&1
+echo "Starting VCSA media preparation"
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates python3 jq
+install -d -m 0755 /opt/vcsa/media /mnt/vcsa
+ISO_URL="${iso_url}"
+ISO_SHA256="${iso_sha256}"
+ISO_PATH="/opt/vcsa/media/VMware-VCSA-all-8.0.3-24022515.iso"
+if [ -z "$ISO_SHA256" ]; then
+  echo "No independently verified ISO checksum; skipping untrusted download."
+  exit 0
+fi
+curl --fail --location --retry 4 --retry-delay 5 --connect-timeout 30 --output "$ISO_PATH" "$ISO_URL"
+printf '%s  %s\n' "$ISO_SHA256" "$ISO_PATH" | sha256sum --check --status
+mount -o loop,ro "$ISO_PATH" /mnt/vcsa
+test -f /mnt/vcsa/vcsa-cli-installer/lin64/vcsa-deploy
+touch /opt/vcsa/MEDIA_READY
+echo "MEDIA_READY: ISO verified against supplied digest and mounted at /mnt/vcsa"
