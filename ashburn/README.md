@@ -25,13 +25,14 @@ Review plans before applying: **1 add** for the IP block, then **2 adds** for th
 
 ```bash
 bash ashburn/scripts/setup-ansible.sh
+bash ashburn/scripts/esxi-time.sh check
 bash ashburn/scripts/vcsa.sh prepare
 bash ashburn/scripts/vcsa.sh precheck
 bash ashburn/scripts/vcsa.sh deploy
 bash ashburn/scripts/register-esxi.sh
 ```
 
-Set `INSTALLER_IP`, `VCSA_ISO_SHA256` and any necessary `VCSA_ISO_PATH` first. Confirm VLAN 3 and required VMware/PhoenixNAP approvals. See the [Ansible installation guide](../docs/vcsa-ansible.md) for these required inputs.
+Set `INSTALLER_IP`, vendor-verified `VCSA_ISO_SHA256` and any necessary `VCSA_ISO_PATH` first. Run `bash ashburn/scripts/esxi-time.sh check` and ensure ESXi reports `Time Synchronized: true` before precheck/deploy; use `configure` only if required and approved. Ansible discovers the existing PhoenixNAP `public.<VLAN>` port group and defaults to VMware Tools time sync. Set verified `VCSA_ESXI_CERT_SHA256`, `ESXI_NTP_SYNC_CONFIRMED=YES`, and required VMware/PhoenixNAP approvals before deploying. See the [Ansible installation guide](../docs/vcsa-ansible.md).
 
 **Destroy the full lab:**
 
@@ -41,7 +42,7 @@ terraform -chdir=ashburn show teardown.tfplan
 terraform -chdir=ashburn apply teardown.tfplan
 ```
 
-This permanently removes ESXi, VCSA, all VMs and local data, the Ubuntu server and the public `/29`. Verify **Servers, Public IP Allocations and billing** in PhoenixNAP.
+This permanently removes ESXi, VCSA, all VMs and local data, the Ubuntu server and the public `/29`. Verify **Servers, Public IP Allocations and billing** in PhoenixNAP. Before Monday's rebuild, archive the old `private/vcsa-config-ashburn.json` and ISO template; do not delete `terraform.tfstate` manually.
 
 ## Reference
 
