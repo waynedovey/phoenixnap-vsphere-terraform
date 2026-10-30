@@ -1,7 +1,7 @@
 # Ashburn — manual installation and troubleshooting reference
 
 **Manual fallback:** The recommended Ansible installation path is documented in [VCSA Ansible guide](vcsa-ansible.md).\n\nThis guide is for the **`phoenixnap-vsphere-terraform`** folder, checked out on
-`feat/ashburn-esxi-temporary-vcsa-installer`. Run all Mac commands from the
+`main`. Run all Mac commands from the
 **repository root**. Only use **`terraform -chdir=ashburn`**: the root Terraform
 files and root `terraform.tfstate` belong to legacy Seattle work.
 
@@ -29,21 +29,17 @@ Use section 6.
 
 ## 1. Configure the empty stack
 
-A fresh clone starts on `main`, which has no `ashburn/` directory. Use:
+Clone or update the existing `main` branch:
 
 ```bash
-git clone https://github.com/waynedovey/phoenixnap-vsphere-terraform.git
+git clone --branch main https://github.com/waynedovey/phoenixnap-vsphere-terraform.git
 cd phoenixnap-vsphere-terraform
-git switch --track origin/feat/ashburn-esxi-temporary-vcsa-installer
 ```
 
-For an existing checkout, `git switch feat/ashburn-esxi-temporary-vcsa-installer`,
-then `git pull --ff-only`. Keep existing ignored state and tfvars files;
-never force checkout if Git reports a conflict.
+For an existing checkout, `git fetch origin main` and `git merge --ff-only origin/main`. Keep existing ignored state and tfvars files; never force checkout if Git reports a conflict.
 
 Preflight on the Mac: `terraform`, `jq`, `govc`, `python3`, `ssh`, `scp`,
-and PhoenixNAP API environment variables `PNAP_CLIENT_ID` and
-`PNAP_CLIENT_SECRET`. Obtain VMware VCSA 8 media legally, a vendor-verified
+and the PhoenixNAP credentials in `~/.pnap/config.yaml` (unset environment values that might override it). Obtain VMware VCSA 8 media legally, a vendor-verified
 SHA-256 digest and any required written PhoenixNAP approval for VCSA.
 
 ```bash
@@ -66,15 +62,13 @@ esxi_type                = "s2.c2.medium"
 installer_type           = "s2.c1.small"
 maximum_hourly_usd       = 1.00
 management_allowed_cidrs = ["0.0.0.0/0"]
-vcsa_iso_sha256          = "REPLACE_WITH_VENDOR_VERIFIED_64_HEX_CHARACTER_SHA256"
+vcsa_iso_url             = ""
+vcsa_iso_sha256          = ""
 ```
 
 Only set the three confirmation flags after checking their conditions.
 The SKUs above worked previously but **stock and prices can change**.
-The management CIDR allows access from everywhere; for a safer lab use
-your IP as a `/32`. The default `vcsa_iso_url` points to an **unofficial mirror**:
-use an authorized source and a digest independently verified with the vendor.
-With `vcsa_iso_sha256 = ""`, cloud-init intentionally **does not download the ISO**.
+The management CIDR shown above allows access from everywhere; for a safer lab use your trusted IP as a `/32`. There is **no default ISO download URL**. Specify an authorized `vcsa_iso_url` and independently vendor-verified SHA-256 to allow cloud-init to download media, or provide `VCSA_ISO_PATH` to Ansible later. With `vcsa_iso_sha256 = ""`, cloud-init intentionally skips the download.
 
 ## 2. Provision ESXi, /29 and temporary Ubuntu
 
@@ -148,13 +142,18 @@ govc host.portgroup.info
 govc datastore.info
 ```
 
-If `vcsa-public` is **absent**, and PhoenixNAP's public VLAN is confirmed as
-**3**, add it once:
+For the new lab, use the ESXi port group named `public.<VLAN>` (the previous one was `public.5`). **Do not create `vcsa-public` on VLAN 3**; that incorrect VLAN caused the previous network outage.
+
+Before VCSA deployment, make sure ESXi's time is synchronized:
 
 ```bash
-govc host.portgroup.add -vswitch vSwitch0 -vlan 3 vcsa-public
-govc host.portgroup.info
+bash ashburn/scripts/esxi-time.sh check
+# Only if necessary, review and explicitly configure reachable public NTP:
+bash ashburn/scripts/esxi-time.sh configure
+bash ashburn/scripts/esxi-time.sh check
 ```
+
+Continue only when `Time Synchronized: true`.
 
 **Never format `datastore1`.** The previous host showed one Micron NVMe
 **boot** drive containing ESXi, `OSDATA` and `datastore1`. Do not assume
@@ -185,14 +184,14 @@ VMware's install template for a standalone ESXi host is
 mkdir -p private
 chmod 700 private
 scp ubuntu@"$INSTALLER_IP":/mnt/vcsa/vcsa-cli-installer/templates/install/embedded_vCSA_on_ESXi.json private/embedded_vCSA_on_ESXi.json
-python3 scripts/render-vcsa-config.py --template private/embedded_vCSA_on_ESXi.json
+python3 scripts/render-vcsa-config.py --template private/embedded_vCSA_on_ESXi.json --portgroup public.5 --time-source host
 jq '{esxi: .new_vcsa.esxi.hostname, portgroup: .new_vcsa.esxi.deployment_network, datastore: .new_vcsa.esxi.datastore, vcsa: .new_vcsa.network.ip, prefix: .new_vcsa.network.prefix, gateway: .new_vcsa.network.gateway, system_name: .new_vcsa.network.system_name}' private/vcsa-config-ashburn.json
 ```
 
 The renderer reads **`terraform -chdir=ashburn output -json`** and checks
 the previously observed /29 layout (gateway = network +1, ESXi = +2,
 VCSA = +3). **It will stop if the ESXi layout changes.** Confirm the
-VCSA IP is **unused** and routable through VLAN 3 before continuing.
+VCSA IP is **unused** and routable through the actual public port group before continuing.
 The JSON contains `FILL_RUNTIME` placeholders, **not real passwords**,
 and is written mode 0600 under ignored `private/`.
 
@@ -220,7 +219,9 @@ cd ~/vcsa
 read -rsp 'ESXi root password: ' ESXI_ROOT_PASSWORD; echo
 read -rsp 'New VCSA root password: ' VCSA_ROOT_PASSWORD; echo
 read -rsp 'New VCSA SSO password: ' VCSA_SSO_PASSWORD; echo
-export ESXI_ROOT_PASSWORD VCSA_ROOT_PASSWORD VCSA_SSO_PASSWORD
+# Verify this host fingerprint independently; NEVER paste guessed values.
+read -r -p 'Verified ESXi TLS SHA-256 fingerprint: ' VCSA_ESXI_CERT_SHA256
+export ESXI_ROOT_PASSWORD VCSA_ROOT_PASSWORD VCSA_SSO_PASSWORD VCSA_ESXI_CERT_SHA256
 export VCSA_INSTALLER_DIR=/mnt/vcsa
 python3 vcsa.py check --template vcsa-config.json
 python3 vcsa.py precheck --template vcsa-config.json
@@ -236,7 +237,7 @@ export VCSA_DEPLOY_APPROVED=YES
 python3 vcsa.py deploy --template vcsa-config.json
 ```
 
-The script requires typing `DEPLOY-VCENTER` as a final confirmation.
+Before the CLI deployment, verify ESXi reports `Time Synchronized: true`; a failed firstboot can leave a `vcsa-ash` VM that must be inspected and explicitly removed before any retry. The script requires typing `DEPLOY-VCENTER` as a final confirmation.
 Password values are injected into a temporary JSON and not committed to Git.
 VMware logs might contain connection details: handle them privately.
 
