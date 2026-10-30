@@ -61,10 +61,10 @@ variable "management_allowed_cidrs" {
 variable "vcsa_iso_url" {
   description = "HTTPS location of verified VCSA 8 ISO; never use untrusted installer binaries."
   type        = string
-  default     = "https://d.idc.ir/VMWare/8.0.3/VMware-VCSA-all-8.0.3-24022515.iso"
+  default     = ""
   validation {
-    condition     = startswith(var.vcsa_iso_url, "https://")
-    error_message = "ISO source must use HTTPS."
+    condition     = var.vcsa_iso_url == "" || startswith(var.vcsa_iso_url, "https://")
+    error_message = "ISO source must use HTTPS if provided."
   }
 }
 
