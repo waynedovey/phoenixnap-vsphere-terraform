@@ -1,0 +1,204 @@
+---
+# Controller-only Ansible: Ubuntu 20.04 has Python 3.8, which Core 2.21
+# cannot target. SSH/SCP do the remote work; no remote Ansible modules.
+- name: Stage verified VCSA ISO and install vCenter on ESXi
+  hosts: localhost
+  gather_facts: false
+  vars:
+    stage: "{{ lookup('env', 'VCSA_STAGE') }}"
+    ip: "{{ lookup('env', 'INSTALLER_IP') }}"
+    iso_sha: "{{ lookup('env', 'VCSA_ISO_SHA256') | lower }}"
+    iso_local: "{{ lookup('env', 'VCSA_ISO_PATH') }}"
+    root: "{{ playbook_dir }}/../.."
+    remote_iso: /opt/vcsa/media/VMware-VCSA-all-8.0.3-24022515.iso
+    template_file: "{{ root }}/private/embedded_vCSA_on_ESXi.json"
+    config_file: "{{ root }}/private/vcsa-config-ashburn.json"
+    target: "ubuntu@{{ ip }}"
+    ssh_args: [ssh, -o, BatchMode=yes, -o, ConnectTimeout=25, -o, ServerAliveInterval=30, -o, ServerAliveCountMax=120]
+    scp_args: [scp, -o, BatchMode=yes, -o, ConnectTimeout=25]
+    govc_env:
+      GOVC_URL: "{{ lookup('env', 'GOVC_URL') }}"
+      GOVC_USERNAME: root
+      GOVC_PASSWORD: "{{ lookup('env', 'ESXI_ROOT_PASSWORD') }}"
+      GOVC_INSECURE: "1"
+  tasks:
+    - name: Validate ISO verification and installer address
+      ansible.builtin.assert:
+        that:
+          - stage in ['prepare', 'precheck', 'deploy']
+          - ip is match('^[0-9]{1,3}(\.[0-9]{1,3}){3}$')
+          - iso_sha is match('^[a-f0-9]{64}$')
+        fail_msg: "Set INSTALLER_IP and vendor-verified VCSA_ISO_SHA256."
+
+    - name: Verify SSH access to temporary Ubuntu host
+      ansible.builtin.command:
+        argv: "{{ ssh_args + [target, 'true'] }}"
+      changed_when: false
+
+    - name: Check whether cloud-init already downloaded the ISO
+      ansible.builtin.command:
+        argv: "{{ ssh_args + [target, 'test -f ' + remote_iso] }}"
+      register: existing_iso
+      changed_when: false
+      failed_when: false
+
+    - name: Upload authorized local ISO if cloud-init did not download it
+      when: existing_iso.rc != 0
+      block:
+        - name: Require local ISO path
+          ansible.builtin.assert:
+            that: iso_local | length > 0
+            fail_msg: "ISO absent on Ubuntu. Set VCSA_ISO_PATH to an authorized local ISO."
+        - name: Hash local ISO
+          ansible.builtin.stat:
+            path: "{{ iso_local }}"
+            checksum_algorithm: sha256
+          register: iso_file
+        - name: Reject local media without expected checksum
+          ansible.builtin.assert:
+            that:
+              - iso_file.stat.isreg | default(false)
+              - iso_file.stat.checksum | default('') == iso_sha
+            fail_msg: "ISO SHA-256 mismatch. Nothing uploaded."
+        - name: Transfer verified ISO to Ubuntu
+          ansible.builtin.command:
+            argv: "{{ scp_args + [iso_local, target + ':vcsa-upload.iso'] }}"
+        - name: Move uploaded ISO to protected media directory
+          ansible.builtin.command:
+            argv: "{{ ssh_args + [target, 'sudo install -d -m 0755 /opt/vcsa/media /mnt/vcsa && sudo mv /home/ubuntu/vcsa-upload.iso ' + remote_iso + ' && sudo chmod 0600 ' + remote_iso] }}"
+
+    - name: Verify remote SHA-256 and mount ISO read-only if not mounted
+      ansible.builtin.command:
+        argv: "{{ ssh_args + [target, 'sudo bash -s'] }}"
+        stdin: |
+          set -Eeuo pipefail
+          printf '%s  %s\n' '{{ iso_sha }}' '{{ remote_iso }}' | sha256sum --check --status
+          install -d -m 0755 /mnt/vcsa
+          if ! mountpoint -q /mnt/vcsa; then
+            mount -o loop,ro '{{ remote_iso }}' /mnt/vcsa
+          fi
+          test -f /mnt/vcsa/vcsa-cli-installer/lin64/vcsa-deploy
+          touch /opt/vcsa/MEDIA_READY
+      changed_when: false
+
+    - name: Inspect ESXi port groups
+      ansible.builtin.command:
+        argv: [govc, host.portgroup.info]
+      environment: "{{ govc_env }}"
+      register: portgroups
+      changed_when: false
+      no_log: true
+
+    - name: Confirm public VLAN before making a port group
+      when: "'vcsa-public' not in portgroups.stdout"
+      ansible.builtin.assert:
+        that: "lookup('env', 'VCSA_PUBLIC_VLAN_CONFIRMED') == 'YES'"
+        fail_msg: "Verify PhoenixNAP public VLAN 3, then set VCSA_PUBLIC_VLAN_CONFIRMED=YES."
+
+    - name: Create only the missing vCenter port group
+      when: "'vcsa-public' not in portgroups.stdout"
+      ansible.builtin.command:
+        argv: [govc, host.portgroup.add, -vswitch, vSwitch0, -vlan, "3", vcsa-public]
+      environment: "{{ govc_env }}"
+      no_log: true
+
+    - name: Create ignored private directory on Mac
+      ansible.builtin.file:
+        path: "{{ root }}/private"
+        state: directory
+        mode: "0700"
+
+    - name: Retrieve VMware ESXi installer template from mounted ISO
+      ansible.builtin.command:
+        argv: "{{ scp_args + [target + ':/mnt/vcsa/vcsa-cli-installer/templates/install/embedded_vCSA_on_ESXi.json', template_file] }}"
+        creates: "{{ template_file }}"
+
+    - name: Generate VCSA configuration from this Ashburn Terraform state
+      ansible.builtin.command:
+        argv: [python3, scripts/render-vcsa-config.py, --template, private/embedded_vCSA_on_ESXi.json]
+        chdir: "{{ root }}"
+        creates: "{{ config_file }}"
+
+    - name: Read generated ESXi address
+      ansible.builtin.command:
+        argv: [jq, -er, .new_vcsa.esxi.hostname, "{{ config_file }}"]
+      register: config_esxi
+      changed_when: false
+
+    - name: Prevent reuse of an old VCSA configuration
+      ansible.builtin.assert:
+        that: "config_esxi.stdout == lookup('env', 'ASHBURN_ESXI_IP')"
+        fail_msg: "Private VCSA config contains an old ESXi address. Archive and regenerate it."
+
+    - name: Create private installer working directory on Ubuntu
+      ansible.builtin.command:
+        argv: "{{ ssh_args + [target, 'umask 077; mkdir -p vcsa; chmod 700 vcsa'] }}"
+      changed_when: false
+
+    - name: Copy VCSA config without passwords to Ubuntu
+      ansible.builtin.command:
+        argv: "{{ scp_args + [config_file, target + ':vcsa/vcsa-config.json'] }}"
+
+    - name: Copy credential-injection wrapper to Ubuntu
+      ansible.builtin.command:
+        argv: "{{ scp_args + [root + '/scripts/vcsa.py', target + ':vcsa/vcsa.py'] }}"
+
+    - name: Require passwords for precheck/install
+      when: stage in ['precheck', 'deploy']
+      ansible.builtin.assert:
+        that:
+          - lookup('env', 'ESXI_ROOT_PASSWORD') | length > 0
+          - lookup('env', 'VCSA_ROOT_PASSWORD') | length > 0
+          - lookup('env', 'VCSA_SSO_PASSWORD') | length > 0
+      no_log: true
+
+    - name: VMware CLI precheck (passwords through SSH stdin, not arguments)
+      when: stage in ['precheck', 'deploy']
+      ansible.builtin.command:
+        argv: "{{ ssh_args + [target, 'python3 -'] }}"
+        stdin: |
+          import os, subprocess, sys
+          os.environ.update({
+            'ESXI_ROOT_PASSWORD': {{ lookup('env', 'ESXI_ROOT_PASSWORD') | to_json }},
+            'VCSA_ROOT_PASSWORD': {{ lookup('env', 'VCSA_ROOT_PASSWORD') | to_json }},
+            'VCSA_SSO_PASSWORD': {{ lookup('env', 'VCSA_SSO_PASSWORD') | to_json }},
+            'VCSA_INSTALLER_DIR': '/mnt/vcsa',
+          })
+          sys.exit(subprocess.run(
+            ['python3', 'vcsa.py', 'precheck', '--template', 'vcsa-config.json'],
+            cwd='/home/ubuntu/vcsa', check=False
+          ).returncode)
+      changed_when: false
+      no_log: true
+
+    - name: Confirm approvals before deploying a vCenter VM
+      when: stage == 'deploy'
+      ansible.builtin.assert:
+        that:
+          - "lookup('env', 'PNAP_VCENTER_SUPPORT_CONFIRMED') == 'YES'"
+          - "lookup('env', 'VCSA_DEPLOY_APPROVED') == 'YES'"
+
+    - name: VMware CLI deployment (requires confirmation in the Mac wrapper)
+      when: stage == 'deploy'
+      ansible.builtin.command:
+        argv: "{{ ssh_args + [target, 'python3 -'] }}"
+        stdin: |
+          import os, subprocess, sys
+          os.environ.update({
+            'ESXI_ROOT_PASSWORD': {{ lookup('env', 'ESXI_ROOT_PASSWORD') | to_json }},
+            'VCSA_ROOT_PASSWORD': {{ lookup('env', 'VCSA_ROOT_PASSWORD') | to_json }},
+            'VCSA_SSO_PASSWORD': {{ lookup('env', 'VCSA_SSO_PASSWORD') | to_json }},
+            'VCSA_INSTALLER_DIR': '/mnt/vcsa',
+            'PNAP_VCENTER_SUPPORT_CONFIRMED': 'YES',
+            'VCSA_DEPLOY_APPROVED': 'YES',
+          })
+          sys.exit(subprocess.run(
+            ['python3', 'vcsa.py', 'deploy', '--template', 'vcsa-config.json'],
+            cwd='/home/ubuntu/vcsa', input='DEPLOY-VCENTER\n',
+            text=True, check=False
+          ).returncode)
+      no_log: true
+
+    - name: Stage complete
+      ansible.builtin.debug:
+        msg: "VCSA {{ stage }} completed; check the vCenter UI or private VMware CLI logs as appropriate."
