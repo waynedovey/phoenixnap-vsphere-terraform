@@ -46,29 +46,39 @@ Inspect each plan **before apply** (expect **2 adds** for the servers). Stop if 
 
 ## Install vCenter (Ansible)
 
-Find Ubuntu's **primary public IP** in PhoenixNAP. Use an **authorized VMware ISO** and independently vendor-verified SHA-256. Cloud-init may have downloaded it already; otherwise specify `VCSA_ISO_PATH` to upload it from your Mac. Verify the public VLAN is **3** before confirming.
+Find Ubuntu's **primary public IP** in PhoenixNAP. Use an **authorized VMware ISO** and an independently vendor-verified SHA-256. No untrusted ISO mirror is configured by default. Supply `VCSA_ISO_PATH` for a local ISO when cloud-init has not downloaded a verified one.
+
+**Before deploying, make sure ESXi itself is synchronized** (PhoenixNAP's default NTP servers were unreachable in the previous lab). The helper uses the ESXi API, so no SSH service is needed:
+
+```bash
+bash ashburn/scripts/esxi-time.sh check
+# Only if the time is NOT synchronized, configure tested public NTP servers:
+bash ashburn/scripts/esxi-time.sh configure
+bash ashburn/scripts/esxi-time.sh check
+```
+
+Proceed only after the output reports **Time Synchronized: true**. The new Ansible workflow uses ESXi's existing `public.<VLAN>` port group and VMware Tools host time sync by default; it does **not** create a hardcoded VLAN 3 port group.
 
 ```bash
 bash ashburn/scripts/setup-ansible.sh
 export INSTALLER_IP="UBUNTU_PRIMARY_IP"
 export VCSA_ISO_SHA256="VENDOR_VERIFIED_64_HEX_SHA256"
 # export VCSA_ISO_PATH="/path/to/VMware-VCSA.iso"
-export VCSA_PUBLIC_VLAN_CONFIRMED=YES
-
 bash ashburn/scripts/vcsa.sh prepare
-# Verify the ESXi TLS certificate SHA-256 against the trusted ESXi host first.
-# See docs/vcsa-ansible.md for the command and verification instructions.
+
+# Verify the ESXi TLS certificate fingerprint out of band (see detailed guide):
 export VCSA_ESXI_CERT_SHA256="VERIFIED_ESXI_CERT_SHA256"
+export ESXI_NTP_SYNC_CONFIRMED=YES
 bash ashburn/scripts/vcsa.sh precheck
 
-# Only after required PhoenixNAP/VMware approvals:
+# Only after required PhoenixNAP/VMware approvals and successful precheck:
 export PNAP_VCENTER_SUPPORT_CONFIRMED=YES
 export VCSA_DEPLOY_APPROVED=YES
 bash ashburn/scripts/vcsa.sh deploy
 bash ashburn/scripts/register-esxi.sh
 ```
 
-Deployment requires typing `DEPLOY-VCENTER` and prompts for passwords. See [ISO, networking and Ansible prerequisites](docs/vcsa-ansible.md).
+The deploy stage refuses to overwrite an existing `vcsa-ash` VM. Deployment requires typing `DEPLOY-VCENTER` and prompts for passwords. See [ISO, networking, NTP and Ansible prerequisites](docs/vcsa-ansible.md).
 
 ## Destroy everything
 
@@ -81,6 +91,8 @@ terraform -chdir=ashburn show teardown.tfplan
 terraform -chdir=ashburn apply teardown.tfplan
 ```
 
-Check PhoenixNAP **Servers, IP Allocations and Billing** afterward. To remove **only Ubuntu** after VCSA is healthy: `bash ashburn/scripts/retire-installer.sh`, then set `enable_installer = false` in `ashburn/terraform.tfvars`.
+Check PhoenixNAP **Servers, IP Allocations and Billing** afterward, including the installer's default public IP allocation. Do not delete local Terraform state before destroying resources.
+
+**Before Monday's new lab:** keep the state backup, but archive old `private/vcsa-config-ashburn.json` and `private/embedded_vCSA_on_ESXi.json` so Ansible generates configuration for the **new** ESXi IP, certificate and port group. Recheck state and the portal for zero existing resources, then create once. To remove **only Ubuntu** after VCSA is healthy: `bash ashburn/scripts/retire-installer.sh`, then set `enable_installer = false` in `ashburn/terraform.tfvars`.
 
 **Keep `ashburn/terraform.tfstate` safe and out of Git. Never format `datastore1`.** [Details](ashburn/README.md) · [Manual fallback](docs/ashburn-manual.md)
