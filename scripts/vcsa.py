@@ -36,7 +36,6 @@ REQUIRED_SETTINGS = {
     "VCSA prefix": ("new_vcsa", "network", "prefix"),
     "VCSA gateway": ("new_vcsa", "network", "gateway"),
     "VCSA DNS": ("new_vcsa", "network", "dns_servers"),
-    "VCSA NTP": ("new_vcsa", "os", "ntp_servers"),
     "SSO domain": ("new_vcsa", "sso", "domain_name"),
 }
 
@@ -76,6 +75,12 @@ def render_config(template_path, env):
         raise ValueError("VCSA must use a reserved, reachable static IP.")
     if get_nested(config, ("new_vcsa", "esxi", "datastore")) != "datastore1":
         raise ValueError("Expected initial datastore 'datastore1'. Confirm disks before changing this.")
+
+    os_settings = get_nested(config, ("new_vcsa", "os"))
+    has_ntp = bool(os_settings.get("ntp_servers"))
+    uses_host_time = os_settings.get("time_tools_sync") is True
+    if has_ntp == uses_host_time:
+        raise ValueError("Choose exactly one VCSA time source: NTP servers OR VMware Tools host sync.")
 
     missing = [name for name in REQUIRED_PASSWORD_ENVS if not env.get(name)]
     if missing:
