@@ -131,7 +131,16 @@ fi
 # Only permit additions of the expected resources, or no changes at all.
 # Replacements, deletions and updates always require separate review.
 plan_dir="$(mktemp -d "$root/private/.build-all.XXXXXXXX")"
-cleanup() { rm -f -- "$plan_dir/ip.tfplan" "$plan_dir/servers.tfplan"; rmdir -- "$plan_dir" 2>/dev/null || true; }
+# Kill only the read-only ISO monitor (never curl/cloud-init/VMware) on exit.
+iso_monitor_pid=""
+cleanup() {
+  if [[ -n "$iso_monitor_pid" ]]; then
+    kill "$iso_monitor_pid" 2>/dev/null || true
+    wait "$iso_monitor_pid" 2>/dev/null || true
+  fi
+  rm -f -- "$plan_dir/ip.tfplan" "$plan_dir/servers.tfplan"
+  rmdir -- "$plan_dir" 2>/dev/null || true
+}
 trap cleanup EXIT
 validate_plan() {
   local path="$1" permitted="$2"
@@ -168,6 +177,30 @@ if [[ ! -f "$retired_override" ]]; then
     | if length == 1 then .[0] else empty end
   ')" || die "Ubuntu provisioning incomplete."
   [[ "$managed_installer" =~ ^[a-f0-9]{24}$ ]] || die "Invalid installer server ID."
+
+  # Cloud-init starts curl while ESXi/NTP checks are still running. Monitor
+  # the existing .partial file remotely, without launching another download.
+  python3 -c 'import ast,pathlib; ast.parse(pathlib.Path("ashburn/scripts/iso-progress.py").read_text())' ||
+    die "ISO progress monitor has invalid Python syntax."
+  installer_ip="$(terraform -chdir=ashburn state pull | python3 ashburn/scripts/resolve-installer-ip.py)" ||
+    die "Unable to find temporary Ubuntu installer IP."
+  [[ "$installer_ip" =~ ^[0-9]{1,3}([.][0-9]{1,3}){3}$ ]] ||
+    die "Invalid temporary Ubuntu installer IP."
+  install -d -m 0700 "$root/private/ssh"
+  installer_known_hosts="$root/private/ssh/installer-${managed_installer}.known_hosts"
+  if [[ ! -e "$installer_known_hosts" ]]; then
+    (umask 077; : > "$installer_known_hosts")
+  fi
+  [[ -f "$installer_known_hosts" && ! -L "$installer_known_hosts" ]] ||
+    die "Unsafe installer SSH known_hosts path."
+  chmod 600 "$installer_known_hosts"
+  echo "Starting background ISO progress display for installer $installer_ip (no duplicate curl)."
+  python3 -u ashburn/scripts/iso-progress.py \
+    --installer-ip "$installer_ip" --known-hosts "$installer_known_hosts" \
+    --interval 15 &
+  iso_monitor_pid=$!
+  # vcsa.sh prepare must not start a second display for the same transfer.
+  export VCSA_ISO_MONITOR_EXTERNAL=YES
 fi
 
 if [[ ! -f "$retired_override" ]]; then
