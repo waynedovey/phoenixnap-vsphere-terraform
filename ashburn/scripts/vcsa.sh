@@ -86,14 +86,10 @@ if [[ "$stage" == prepare ]]; then
     chmod 600 "$build_id_file"
   fi
 fi
-if [[ "$stage" != prepare ]]; then
-  : "${VCSA_ESXI_CERT_SHA256:?Set VCSA_ESXI_CERT_SHA256 to the independently verified ESXi certificate SHA-256}"
-  [[ "${VCSA_ESXI_CERT_SHA256//:/}" =~ ^[a-fA-F0-9]{64}$ ]] || { echo "Invalid ESXi certificate fingerprint." >&2; exit 1; }
-  if [[ "${ESXI_NTP_SYNC_CONFIRMED:-}" != YES ]]; then
-    echo "STOP: verify ESXi reports 'Time Synchronized: true' using esxcli system ntp get." >&2
-    echo "Then set ESXI_NTP_SYNC_CONFIRMED=YES for this lab." >&2
-    exit 1
-  fi
+if [[ "$stage" != prepare && "${ESXI_NTP_SYNC_CONFIRMED:-}" != YES ]]; then
+  echo "STOP: verify ESXi reports 'Time Synchronized: true' using esxcli system ntp get." >&2
+  echo "Then set ESXI_NTP_SYNC_CONFIRMED=YES for this lab." >&2
+  exit 1
 fi
 
 esxi_url="$(terraform -chdir=ashburn output -raw esxi_management_url)"
@@ -102,6 +98,22 @@ if [[ ! "$esxi_url" =~ ^https://([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)(:[0-9]+)?/?$ ]]
 fi
 export ASHBURN_ESXI_IP="${BASH_REMATCH[1]}"
 export GOVC_URL="${esxi_url%/}/sdk"
+
+# Automatically pin the ESXi HTTPS certificate by PhoenixNAP server ID.
+# First run is TOFU, NOT independent identity verification. Subsequent
+# certificate changes for the SAME server ID are fatal. A newly provisioned
+# ESXi has a new server ID, hence a separate pin. No manual export required.
+if [[ "$stage" != prepare ]]; then
+  if ! VCSA_ESXI_CERT_SHA256="$(python3 ashburn/scripts/pin-esxi-cert.py \
+    --url "$esxi_url" \
+    --server-id "$esxi_id" \
+    --pin-dir "$root/private/certs")"; then
+    echo "STOP: ESXi certificate could not be pinned or has changed." >&2
+    exit 1
+  fi
+  export VCSA_ESXI_CERT_SHA256
+fi
+
 # ESXi password stays in process memory; do not echo it or commit the state.
 export ESXI_ROOT_PASSWORD="$(terraform -chdir=ashburn state pull | jq -er '.resources[] | select(.type == "pnap_server" and .name == "esxi") | .instances[0].attributes.root_password')"
 [[ -n "$ESXI_ROOT_PASSWORD" ]] || { echo "Missing ESXi root password." >&2; exit 1; }
