@@ -91,6 +91,185 @@ fi
 [[ "${PNAP_VCENTER_SUPPORT_CONFIRMED:-}" == YES ]] ||
   die "PNAP_VCENTER_SUPPORT_CONFIRMED=YES must already be set after provider approval."
 
+# Adopt a lab built with the previous automation, before any Terraform plan.
+# Such a lab may have vcsa-ash but no installer AND no retirement override.
+# Never provision a second temporary Ubuntu server just because the user's
+# original enable_installer=true setting is intentionally unchanged.
+if [[ ! -e "$retired_override" && ! -L "$retired_override" ]]; then
+  if old_state="$(terraform -chdir=ashburn state pull 2>/dev/null)"; then
+    old_esxi="$(jq -r '
+      [.resources[]? | select(.mode == "managed" and .type == "pnap_server" and .name == "esxi")
+       | .instances[]?.attributes.id] | length
+    ' <<<"$old_state")"
+    old_installer="$(jq -r '
+      [.resources[]? | select(.mode == "managed" and .type == "pnap_server" and .name == "installer")
+       | .instances[]?.attributes.id] | length
+    ' <<<"$old_state")"
+    if [[ "$old_esxi" == 1 && "$old_installer" == 0 ]]; then
+      # Must inspect actual ESXi inventory (not assume VCSA exists from state).
+      unset GOVC_DATACENTER GOVC_FOLDER
+      export GOVC_URL="$(terraform -chdir=ashburn output -raw esxi_management_url)"
+      GOVC_URL="${GOVC_URL%/}/sdk"
+      export GOVC_URL GOVC_USERNAME=root GOVC_INSECURE=1
+      export GOVC_PASSWORD="$(jq -er '
+        .resources[] | select(.type == "pnap_server" and .name == "esxi")
+        | .instances[0].attributes.root_password
+      ' <<<"$old_state")"
+      prior_vm="$(govc find / -type m -name vcsa-ash)" ||
+        die "Cannot safely check previous ESXi inventory; no installer will be reprovisioned."
+      [[ "$prior_vm" != *
+plan_dir="$(mktemp -d "$root/private/.build-all.XXXXXXXX")"
+cleanup() { rm -f -- "$plan_dir/ip.tfplan" "$plan_dir/servers.tfplan"; rmdir -- "$plan_dir" 2>/dev/null || true; }
+trap cleanup EXIT
+validate_plan() {
+  local path="$1" permitted="$2"
+  terraform -chdir=ashburn show -json "$path" | jq -e --arg allow "$permitted" '
+    [(.resource_changes // [])[]
+       | select(.change.actions != ["no-op"])
+       | {address, actions: .change.actions}]
+    | all(.[]; (.actions == ["create"] and (.address | IN($allow))))
+  ' >/dev/null || die "Unexpected Terraform plan actions; no resources were changed by this step."
+}
+
+say "Provision public /29 if absent"
+terraform -chdir=ashburn plan -input=false -no-color \
+  -target='pnap_ip_block.esxi_29[0]' -out="$plan_dir/ip.tfplan"
+validate_plan "$plan_dir/ip.tfplan" 'pnap_ip_block.esxi_29[0]'
+terraform -chdir=ashburn apply -input=false -no-color -auto-approve "$plan_dir/ip.tfplan"
+
+say "Provision ESXi and temporary Ubuntu installer if absent"
+terraform -chdir=ashburn plan -input=false -no-color -out="$plan_dir/servers.tfplan"
+terraform -chdir=ashburn show -json "$plan_dir/servers.tfplan" | jq -e '
+  [(.resource_changes // [])[]
+     | select(.change.actions != ["no-op"])
+     | {address, actions: .change.actions}]
+  | all(.[]; (.actions == ["create"] and (.address | IN(
+       "pnap_server.esxi[0]", "pnap_server.installer[0]"))))
+' >/dev/null || die "Server plan includes unexpected changes; nothing applied."
+terraform -chdir=ashburn apply -input=false -no-color -auto-approve "$plan_dir/servers.tfplan"
+
+[[ "$(terraform -chdir=ashburn output -raw esxi_id)" =~ ^[a-f0-9]{24}$ ]] || die "ESXi provisioning incomplete."
+if [[ ! -f "$retired_override" ]]; then
+  # New build: Ubuntu must exist before VCSA preparation.
+  managed_installer="$(terraform -chdir=ashburn state pull | jq -er '
+    [.resources[]? | select(.mode == "managed" and .type == "pnap_server" and .name == "installer")
+     | .instances[]?.attributes.id | select(type == "string")]
+    | if length == 1 then .[0] else empty end
+  ')" || die "Ubuntu provisioning incomplete."
+  [[ "$managed_installer" =~ ^[a-f0-9]{24}$ ]] || die "Invalid installer server ID."
+fi
+
+if [[ ! -f "$retired_override" ]]; then
+say "Check and, if necessary, configure ESXi time synchronization"
+synced=0
+for attempt in $(seq 1 20); do
+  if ntp_status="$(bash ashburn/scripts/esxi-time.sh check 2>&1)"; then
+    if grep -Eiq '^[[:space:]]*Time Synchronized:[[:space:]]*true[[:space:]]*$' <<<"$ntp_status"; then
+      synced=1
+      break
+    fi
+    if [[ "${configured_ntp:-0}" == 0 ]]; then
+      bash ashburn/scripts/esxi-time.sh configure </dev/null
+      configured_ntp=1
+    fi
+  fi
+  sleep 15
+done
+[[ "$synced" == 1 ]] || die "ESXi NTP is not synchronized; VCSA install halted."
+export ESXI_NTP_SYNC_CONFIRMED=YES
+else
+  say "Existing VCSA: skip fresh-install NTP gate; no new deployment will run"
+fi
+
+say "Set up Ansible (once)"
+if [[ ! -x ashburn/.venv/bin/ansible-playbook ]]; then
+  bash ashburn/scripts/setup-ansible.sh </dev/null
+fi
+
+say "Inspect vCenter appliance VM (never overwrite an existing VM)"
+# An inherited vCenter datacenter scope must not hide the standalone ESXi.
+unset GOVC_DATACENTER GOVC_FOLDER
+export GOVC_URL="$(terraform -chdir=ashburn output -raw esxi_management_url)"
+export GOVC_URL="${GOVC_URL%/}/sdk" GOVC_USERNAME=root GOVC_INSECURE=1
+export GOVC_PASSWORD="$(terraform -chdir=ashburn state pull | jq -er '
+  .resources[] | select(.type == "pnap_server" and .name == "esxi")
+  | .instances[0].attributes.root_password
+')"
+existing_vm="$(govc find / -type m -name vcsa-ash)" || die "Cannot query ESXi inventory."
+if [[ "$existing_vm" == *
+  say "Prepare and precheck new vCenter installation"
+  bash ashburn/scripts/vcsa.sh prepare </dev/null
+  bash ashburn/scripts/vcsa.sh precheck </dev/null
+  say "Install vCenter with live VMware task progress"
+  export VCSA_DEPLOY_APPROVED=YES
+  bash ashburn/scripts/vcsa.sh deploy </dev/null
+else
+  say "Existing vcsa-ash VM detected: skip VCSA installation (no overwrite)"
+  bash ashburn/scripts/vcsa.sh inspect </dev/null
+fi
+
+say "Register ESXi in vCenter"
+bash ashburn/scripts/register-esxi.sh </dev/null
+
+vcenter_ip="$(jq -er '.new_vcsa.network.ip' private/vcsa-config-ashburn.json)"
+printf '\n========================================\n'
+printf '        Ashburn lab ready\n'
+printf '========================================\n'
+printf 'vCenter URL : https://%s/ui\n' "$vcenter_ip"
+printf 'vCenter user: administrator@vsphere.local\n'
+printf 'VCSA root   : root (same local password file)\n'
+printf 'VCSA SSO    : same local password file (not printed)\n'
+printf 'ESXi URL    : %s\n' "$(terraform -chdir=ashburn output -raw esxi_management_url)"
+printf 'ESXi user   : root (PhoenixNAP-issued credential in Terraform state)\n'
+printf '========================================\n'
+\n'* ]]; then
+  die "Multiple vcsa-ash VMs found; refusing to guess which appliance is valid."
+fi
+if [[ -f "$retired_override" && -z "$existing_vm" ]]; then
+  die "Retirement override exists but vcsa-ash VM is missing. Stop; never auto-redeploy over an existing lab."
+fi
+if [[ -z "$existing_vm" ]]; then
+  say "Prepare and precheck new vCenter installation"
+  bash ashburn/scripts/vcsa.sh prepare </dev/null
+  bash ashburn/scripts/vcsa.sh precheck </dev/null
+  say "Install vCenter with live VMware task progress"
+  export VCSA_DEPLOY_APPROVED=YES
+  bash ashburn/scripts/vcsa.sh deploy </dev/null
+else
+  say "Existing vcsa-ash VM detected: skip VCSA installation (no overwrite)"
+  bash ashburn/scripts/vcsa.sh inspect </dev/null
+fi
+
+say "Register ESXi in vCenter"
+bash ashburn/scripts/register-esxi.sh </dev/null
+
+vcenter_ip="$(jq -er '.new_vcsa.network.ip' private/vcsa-config-ashburn.json)"
+printf '\n========================================\n'
+printf '        Ashburn lab ready\n'
+printf '========================================\n'
+printf 'vCenter URL : https://%s/ui\n' "$vcenter_ip"
+printf 'vCenter user: administrator@vsphere.local\n'
+printf 'VCSA root   : root (same local password file)\n'
+printf 'VCSA SSO    : same local password file (not printed)\n'
+printf 'ESXi URL    : %s\n' "$(terraform -chdir=ashburn output -raw esxi_management_url)"
+printf 'ESXi user   : root (PhoenixNAP-issued credential in Terraform state)\n'
+printf '========================================\n'
+\n'* ]] ||
+        die "Multiple vcsa-ash VMs found. Manual review required."
+      if [[ -n "$prior_vm" ]]; then
+        say "Adopting already installed vCenter; registering ESXi before persisting retirement override"
+        if [[ ! -x ashburn/.venv/bin/ansible-playbook ]]; then
+          bash ashburn/scripts/setup-ansible.sh </dev/null
+        fi
+        bash ashburn/scripts/register-esxi.sh </dev/null ||
+          die "Existing vCenter registration/retirement not verified; no new installer created."
+        [[ -f "$retired_override" ]] ||
+          die "Existing VCSA registered but retirement override was not saved."
+      fi
+    fi
+  fi
+fi
+
 # Only permit additions of the expected resources, or no changes at all.
 # Replacements, deletions and updates always require separate review.
 plan_dir="$(mktemp -d "$root/private/.build-all.XXXXXXXX")"
