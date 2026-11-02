@@ -56,6 +56,8 @@ class NtpIsoWorkflowTests(unittest.TestCase):
         self.assertNotIn("curl --", monitor)
         self.assertIn("VMware-VCSA-all-8.0.3-24022515.iso.partial", monitor)
         self.assertIn("/opt/vcsa/MEDIA_READY", monitor)
+        playbook = (ROOT / "ashburn/ansible/vcsa.yml").read_text()
+        self.assertIn("sudo timeout 7200 cloud-init status --wait", playbook)
 
 
 if __name__ == "__main__":
