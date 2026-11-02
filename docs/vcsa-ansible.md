@@ -82,7 +82,15 @@ bash ashburn/scripts/vcsa.sh deploy
 bash ashburn/scripts/register-esxi.sh
 ```
 
-`deploy` requires you to type `DEPLOY-VCENTER`. It also refuses to deploy when a `vcsa-ash` VM already exists, protecting against duplicate deployment after a failed run. The remote VMware CLI performs the installation; Ansible hides sensitive task output, so consult private VMware installer logs on Ubuntu if a stage fails. The exact VM name and previous deployment state must be inspected before any manual cleanup.
+`deploy` requires you to type `DEPLOY-VCENTER`. It also refuses to deploy when a `vcsa-ash` VM already exists, protecting against duplicate deployment after a failed run. The remote VMware CLI performs the installation. Ansible keeps `no_log: true` for tasks containing credentials, so failure details do not appear in its task result. A new `diagnose` stage provides a read-only, filtered summary:
+
+```bash
+bash ashburn/scripts/vcsa.sh diagnose
+```
+
+The precheck subprocess writes combined output to `/home/ubuntu/vcsa/last-precheck.log` on Ubuntu with permissions 0600; the diagnostic also examines recent `/tmp/vcsaCliInstaller-*/.../vcsa-cli-installer.log` files. **If the failed precheck preceded this logging improvement**, first try diagnose for VMware's earlier logs, then rerun `precheck` after pulling the changes to capture any missing Python/CLI errors. The diagnostic does not deploy the appliance or need VCSA passwords. It suppresses lines with common secret assignments, but inspect output before sharing it. Raw installer logs may contain secrets.
+
+The exact VM name and previous deployment state must be inspected before any manual cleanup.
 
 ## Troubleshooting and safety
 
