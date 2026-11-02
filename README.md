@@ -46,7 +46,16 @@ Inspect each plan **before apply** (expect **2 adds** for the servers). Stop if 
 
 ## Install vCenter (Ansible)
 
-Find Ubuntu's **primary public IP** in PhoenixNAP. Use an **authorized VMware ISO** and an independently vendor-verified SHA-256. No untrusted ISO mirror is configured by default. Supply `VCSA_ISO_PATH` for a local ISO when cloud-init has not downloaded a verified one.
+**No manual IP or checksum exports.** `vcsa.sh` discovers the temporary Ubuntu server's current public IPv4 and server ID from Terraform outputs, and reads `vcsa_iso_sha256`, `vcsa_iso_url`, and optional `vcsa_iso_local_path` directly from `ashburn/terraform.tfvars` via Terraform console.
+
+Set **one authorized ISO source** in `ashburn/terraform.tfvars`:
+```hcl
+vcsa_iso_url        = "https://YOUR_AUTHORIZED_VCSA_ISO_URL"
+vcsa_iso_sha256     = "YOUR_INDEPENDENTLY_VERIFIED_64_HEX_SHA256"
+vcsa_iso_local_path = ""  # Or set an absolute Mac ISO path instead of the URL
+```
+
+If the ISO is absent on Ubuntu, Ansible downloads it using the configured HTTPS URL and verifies SHA-256 before mounting. Alternatively, if the URL is empty, Ansible uploads the configured local ISO and verifies it. **A checksum alone cannot identify where to download the ISO.** The old third-party mirror is intentionally not a default; use the [Broadcom vCenter download portal instructions](https://knowledge.broadcom.com/external/article/387785/download-vcenter-server-patches-and-isos.html).
 
 **Before deploying, make sure ESXi itself is synchronized** (PhoenixNAP's default NTP servers were unreachable in the previous lab). The helper uses the ESXi API, so no SSH service is needed:
 
@@ -61,9 +70,6 @@ Proceed only after the output reports **Time Synchronized: true**. The new Ansib
 
 ```bash
 bash ashburn/scripts/setup-ansible.sh
-export INSTALLER_IP="UBUNTU_PRIMARY_IP"
-export VCSA_ISO_SHA256="VENDOR_VERIFIED_64_HEX_SHA256"
-# export VCSA_ISO_PATH="/path/to/VMware-VCSA.iso"
 bash ashburn/scripts/vcsa.sh prepare
 
 # Verify the ESXi TLS certificate fingerprint out of band (see detailed guide):
@@ -77,6 +83,8 @@ export VCSA_DEPLOY_APPROVED=YES
 bash ashburn/scripts/vcsa.sh deploy
 bash ashburn/scripts/register-esxi.sh
 ```
+
+SSH uses a private, per-installer-server-ID `known_hosts` file with `StrictHostKeyChecking=accept-new`. This avoids false host-key conflicts when PhoenixNAP reuses an IP, while still rejecting subsequent changes for the same server. **First connection is trust-on-first-use**, so verify the fingerprint through the PhoenixNAP console when stronger host authentication is required. No global SSH known_hosts edits or disabled host-key checks are needed. The wrapper also archives stale VCSA JSON/templates when a new installer ID is detected.
 
 The deploy stage refuses to overwrite an existing `vcsa-ash` VM. Deployment requires typing `DEPLOY-VCENTER` and prompts for passwords. See [ISO, networking, NTP and Ansible prerequisites](docs/vcsa-ansible.md).
 
