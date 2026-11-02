@@ -41,6 +41,59 @@ fi
   exit 1
 }
 
+# Keep the user's terraform.tfvars unchanged. Terraform automatically loads
+# *.auto.tfvars AFTER terraform.tfvars, so an ignored lifecycle override can
+# prevent a retired temporary server from being recreated on the next apply.
+tfvars="$root/ashburn/terraform.tfvars"
+[[ -f "$tfvars" && ! -L "$tfvars" ]] || {
+  echo "STOP: missing or unsafe ashburn/terraform.tfvars." >&2
+  exit 1
+}
+python3 - "$tfvars" <<'PY'
+from pathlib import Path
+import re
+import sys
+lines = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+matches = [line for line in lines if re.fullmatch(
+    r'[ \t]*enable_installer[ \t]*=[ \t]*(true|false)[ \t]*(?:#.*)?', line)]
+if len(matches) != 1:
+    sys.exit("STOP: expected one active enable_installer assignment in terraform.tfvars")
+PY
+
+override="$root/ashburn/zz-installer-retired.auto.tfvars"
+persist_retirement() {
+  # Fail closed on an unexpected local override or symlink. Never overwrite a
+  # user file or mutate ashburn/terraform.tfvars.
+  python3 - "$override" <<'PY'
+from pathlib import Path
+import os
+import sys
+path = Path(sys.argv[1])
+expected = ("# Managed by ashburn/scripts/retire-installer.sh.\n"
+            "# Temporary VCSA installer retired; terraform.tfvars is unchanged.\n"
+            "enable_installer = false\n")
+if path.is_symlink():
+    sys.exit("STOP: installer retirement override is a symlink")
+if path.exists():
+    if not path.is_file() or path.read_text(encoding="utf-8") != expected:
+        sys.exit("STOP: unexpected retirement override contents; inspect manually")
+else:
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as output:
+        output.write(expected)
+PY
+  # Prove the override has the expected effect without modifying infrastructure.
+  local effective
+  effective="$(printf 'var.enable_installer\n' | terraform -chdir="$tf" console -no-color)" || {
+    echo "STOP: cannot evaluate installer lifecycle override." >&2
+    return 1
+  }
+  [[ "$effective" == false ]] || {
+    echo "STOP: installer lifecycle override did not disable Terraform provisioning." >&2
+    return 1
+  }
+}
+
 # Resolve ONLY the temporary installer with the expected resource name.
 # Absent is an idempotent no-op; duplicate or unexpected instances fail closed.
 if ! installer_records="$(jq -ce '
@@ -53,7 +106,10 @@ if ! installer_records="$(jq -ce '
 fi
 installer_count="$(jq -r 'length' <<<"$installer_records")"
 if [[ "$installer_count" == 0 ]]; then
-  echo "No temporary Ashburn installer in Terraform state; nothing to delete."
+  # On a repeated registration, retain disabled desired state even though the
+  # installer no longer exists. Never create an unwanted Ubuntu server later.
+  persist_retirement
+  echo "Installer already absent; lifecycle override persists without changing terraform.tfvars."
   exit 0
 fi
 if [[ "$installer_count" != 1 ]]; then
@@ -73,27 +129,6 @@ fi
   exit 1
 }
 echo "Found temporary installer from Terraform managed state: $server_id"
-
-tfvars="$root/ashburn/terraform.tfvars"
-[[ -f "$tfvars" && ! -L "$tfvars" ]] || {
-  echo "STOP: missing or unsafe ashburn/terraform.tfvars; no deletion attempted." >&2
-  exit 1
-}
-
-# Confirm the local variable is safely writable BEFORE destroying anything.
-# After retirement, leaving enable_installer=true would recreate this server
-# during the next normal terraform apply.
-python3 - "$tfvars" check <<'PY'
-from pathlib import Path
-import re
-import sys
-path = Path(sys.argv[1])
-lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
-pattern = re.compile(r'^([ \t]*enable_installer[ \t]*=[ \t]*)(true|false)([ \t]*(?:#.*)?(?:\r?\n)?)$')
-matches = [line for line in lines if pattern.fullmatch(line)]
-if len(matches) != 1:
-    sys.exit("STOP: expected exactly one uncommented enable_installer = true/false in tfvars")
-PY
 
 plan_dir="$(mktemp -d "${TMPDIR:-/tmp}/ash-installer-retire.XXXXXXXX")"
 trap 'rm -f -- "$plan_dir/retire.tfplan"; rmdir -- "$plan_dir" 2>/dev/null || true' EXIT
@@ -130,42 +165,10 @@ if [[ "$mode" != --yes ]]; then
   }
 fi
 
-# Keep the ignored tfvars consistent with the desired retired state. Do this
-# before applying so an interrupted cleanup cannot accidentally recreate
-# the installer during the next Terraform plan. The saved deletion plan has
-# already been validated and explicitly sets enable_installer=false.
-python3 - "$tfvars" write <<'PY'
-from pathlib import Path
-import os
-import re
-import stat
-import sys
-import tempfile
-
-path = Path(sys.argv[1])
-pattern = re.compile(r'^([ \t]*enable_installer[ \t]*=[ \t]*)(true|false)([ \t]*(?:#.*)?(?:\r?\n)?)$')
-lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
-matches = [i for i, line in enumerate(lines) if pattern.fullmatch(line)]
-if len(matches) != 1:
-    sys.exit("STOP: tfvars changed unexpectedly; no deletion attempted")
-i = matches[0]
-lines[i] = pattern.sub(r'\g<1>false\g<3>', lines[i])
-mode = stat.S_IMODE(path.stat().st_mode)
-fd, temp_name = tempfile.mkstemp(prefix=".terraform.tfvars.", dir=str(path.parent))
-try:
-    with os.fdopen(fd, "w", encoding="utf-8") as temp:
-        temp.writelines(lines)
-        temp.flush()
-        os.fsync(temp.fileno())
-    os.chmod(temp_name, mode & 0o600)
-    os.replace(temp_name, path)
-except BaseException:
-    try:
-        os.unlink(temp_name)
-    except OSError:
-        pass
-    raise
-PY
+# Persist the ignored, auto-loaded Terraform override BEFORE applying the
+# already verified saved plan. Even if apply is interrupted, future plans will
+# not recreate a retired installer. User terraform.tfvars remains unchanged.
+persist_retirement
 
 terraform -chdir="$tf" apply -input=false -lock-timeout=30s "$plan_dir/retire.tfplan"
 
@@ -179,5 +182,5 @@ if grep -Fxq 'pnap_server.installer[0]' <<< "$remaining_state"; then
   echo "WARNING: installer still appears in Terraform state; check PhoenixNAP portal." >&2
   exit 1
 fi
-echo "Installer retired. enable_installer=false saved in ignored ashburn/terraform.tfvars."
+echo "Installer retired. Ignored ashburn/zz-installer-retired.auto.tfvars prevents reprovisioning."\necho "User ashburn/terraform.tfvars was NOT modified."
 echo "Verify PhoenixNAP Servers / IP allocations and billing are updated."
