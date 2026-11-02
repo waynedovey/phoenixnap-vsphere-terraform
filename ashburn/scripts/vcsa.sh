@@ -50,7 +50,14 @@ export VCSA_ISO_PATH="$(tf_variable vcsa_iso_local_path)"
   echo "Set vcsa_iso_sha256 in ashburn/terraform.tfvars (vendor-verified digest required)." >&2; exit 1;
 }
 if [[ -n "$VCSA_ISO_URL" && ! "$VCSA_ISO_URL" == https://* ]]; then
-  echo "vcsa_iso_url must use HTTPS." >&2; exit 1
+  echo "vcsa_iso_url must use HTTPS. In tfvars, enter the plain URL, not Markdown link syntax." >&2; exit 1
+fi
+if [[ -n "$VCSA_ISO_URL" && -n "$VCSA_ISO_PATH" ]]; then
+  echo "NOTE: vcsa_iso_url is set, so the Mac-local vcsa_iso_local_path is ignored." >&2
+  echo "Set vcsa_iso_local_path = \"\" in ashburn/terraform.tfvars to avoid confusion." >&2
+fi
+if [[ -z "$VCSA_ISO_URL" && -z "$VCSA_ISO_PATH" ]]; then
+  echo "NOTE: no ISO source configured; prepare requires media already present on Ubuntu." >&2
 fi
 
 # Isolate host-key trust to this server ID so a recycled IP does not conflict
