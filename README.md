@@ -15,7 +15,7 @@ For a **previously approved** lab, the non-interactive entry point runs Terrafor
 bash ashburn/scripts/build-all.sh
 ```
 
-Before running, configure `~/.pnap/config.yaml`, `ashburn/terraform.tfvars` (enable both servers and record real provider/cost/retirement approvals), and a mode-`600` **git-ignored** `private/ashburn-lab-password` containing the VCSA root/SSO password. The shell environment must already have `PNAP_VCENTER_SUPPORT_CONFIRMED=YES` following actual provider approval. Missing approvals cause the script to **stop without prompting**, not silently self-authorize. **Never commit the password.** PhoenixNAP generates the ESXi root password separately; it is retrieved from Terraform state rather than changed. The script won't delete or replace existing Terraform resources or overwrite `vcsa-ash`.
+Before running, configure `~/.pnap/config.yaml`, `ashburn/terraform.tfvars` (enable both servers and record real provider/cost/retirement approvals), and a mode-`600` **git-ignored** `private/ashburn-lab-password` containing the VCSA root/SSO password. The shell environment must already have `PNAP_VCENTER_SUPPORT_CONFIRMED=YES` following actual provider approval. Missing approvals cause the script to **stop without prompting**, not silently self-authorize. **Never commit the password.** PhoenixNAP generates the ESXi root password separately; it is retrieved from Terraform state rather than changed. The script won't replace ESXi, its `/29`, or an existing `vcsa-ash`. **Once ESXi is verified in vCenter, it deletes the temporary Ubuntu installer** using an installer-only Terraform plan and persists `enable_installer = false` in your ignored tfvars. It is an initial-build workflow, not a command to reprovision a retired installer.
 
 For manual step-by-step operation, use the sections below.
 
@@ -100,7 +100,7 @@ The deployment command shows **live VMware task progress**. If VMware returns a 
 bash ashburn/scripts/register-esxi.sh
 ```
 
-After successful registration, the script prints the vCenter login URL and username. The SSO password is hidden by default, with an optional interactive reveal.
+After successful registration **and verification of the exact ESXi host**, this script automatically destroys only the temporary PhoenixNAP Ubuntu installer. It checks the Terraform deletion plan and saves `enable_installer = false` locally to avoid recreating it. If registration or the plan check fails, Ubuntu stays running. The script then prints the vCenter login URL and username; the SSO password is hidden by default, with an optional interactive reveal.
 
 ## 5. Destroy the lab
 
