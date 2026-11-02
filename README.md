@@ -46,13 +46,13 @@ Inspect each plan **before apply** (expect **2 adds** for the servers). Stop if 
 
 ## Install vCenter (Ansible)
 
-**No manual IP or checksum exports.** `vcsa.sh` discovers the temporary Ubuntu server's current public IPv4 and server ID from Terraform outputs, and reads `vcsa_iso_sha256`, `vcsa_iso_url`, and optional `vcsa_iso_local_path` directly from `ashburn/terraform.tfvars` via Terraform console.
+**No manual IP or checksum exports.** `vcsa.sh` discovers the temporary Ubuntu server's **primary IPv4** directly from the current PhoenixNAP server resource in Terraform state (not from a public IP range), and reads `vcsa_iso_sha256`, `vcsa_iso_url`, and optional `vcsa_iso_local_path` from `ashburn/terraform.tfvars` via Terraform console. The script fails immediately if the primary IP is missing.
 
 Set **one authorized ISO source** in `ashburn/terraform.tfvars`:
 ```hcl
 vcsa_iso_url        = "https://YOUR_AUTHORIZED_VCSA_ISO_URL"
 vcsa_iso_sha256     = "YOUR_INDEPENDENTLY_VERIFIED_64_HEX_SHA256"
-vcsa_iso_local_path = ""  # Or set an absolute Mac ISO path instead of the URL
+vcsa_iso_local_path = ""  # Leave empty when using the URL; this means a path ON YOUR MAC
 ```
 
 If the ISO is absent on Ubuntu, Ansible downloads it using the configured HTTPS URL and verifies SHA-256 before mounting. Alternatively, if the URL is empty, Ansible uploads the configured local ISO and verifies it. **A checksum alone cannot identify where to download the ISO.** The old third-party mirror is intentionally not a default; use the [Broadcom vCenter download portal instructions](https://knowledge.broadcom.com/external/article/387785/download-vcenter-server-patches-and-isos.html).
