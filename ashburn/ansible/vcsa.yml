@@ -9,13 +9,16 @@
     ip: "{{ lookup('env', 'INSTALLER_IP') }}"
     iso_sha: "{{ lookup('env', 'VCSA_ISO_SHA256') | lower }}"
     iso_local: "{{ lookup('env', 'VCSA_ISO_PATH') }}"
+    iso_url: "{{ lookup('env', 'VCSA_ISO_URL') }}"
     root: "{{ playbook_dir }}/../.."
     remote_iso: /opt/vcsa/media/VMware-VCSA-all-8.0.3-24022515.iso
     template_file: "{{ root }}/private/embedded_vCSA_on_ESXi.json"
     config_file: "{{ root }}/private/vcsa-config-ashburn.json"
     target: "ubuntu@{{ ip }}"
-    ssh_args: [ssh, -o, BatchMode=yes, -o, ConnectTimeout=25, -o, ServerAliveInterval=30, -o, ServerAliveCountMax=120]
-    scp_args: [scp, -o, BatchMode=yes, -o, ConnectTimeout=25]
+    # Host keys are trusted on first use in a per-server-ID file.
+    # Recycled public IPs never inherit the previous server's known_hosts entry.
+    ssh_args: [ssh, -o, "UserKnownHostsFile={{ lookup('env', 'ASHBURN_INSTALLER_KNOWN_HOSTS') }}", -o, StrictHostKeyChecking=accept-new, -o, BatchMode=yes, -o, ConnectTimeout=25, -o, ServerAliveInterval=30, -o, ServerAliveCountMax=120]
+    scp_args: [scp, -o, "UserKnownHostsFile={{ lookup('env', 'ASHBURN_INSTALLER_KNOWN_HOSTS') }}", -o, StrictHostKeyChecking=accept-new, -o, BatchMode=yes, -o, ConnectTimeout=25]
     govc_env:
       GOVC_URL: "{{ lookup('env', 'GOVC_URL') }}"
       GOVC_USERNAME: root
@@ -28,7 +31,7 @@
           - stage in ['prepare', 'precheck', 'deploy']
           - ip is match('^[0-9]{1,3}(\.[0-9]{1,3}){3}$')
           - iso_sha is match('^[a-f0-9]{64}$')
-        fail_msg: "Set INSTALLER_IP and vendor-verified VCSA_ISO_SHA256."
+        fail_msg: "The wrapper must discover the installer IP from Terraform and load vcsa_iso_sha256 from terraform.tfvars."
 
     - name: Verify SSH access to temporary Ubuntu host
       ansible.builtin.command:
@@ -42,13 +45,33 @@
       changed_when: false
       failed_when: false
 
+    - name: Download configured authorized HTTPS ISO when cloud-init did not
+      when: existing_iso.rc != 0 and iso_url | length > 0
+      ansible.builtin.command:
+        argv: "{{ ssh_args + [target, 'sudo bash -s'] }}"
+        stdin: |
+          set -Eeuo pipefail
+          umask 077
+          iso_url={{ iso_url | quote }}
+          iso_sha={{ iso_sha | quote }}
+          iso_path={{ remote_iso | quote }}
+          case "$iso_url" in https://*) ;; *) echo "ISO URL must use HTTPS"; exit 1 ;; esac
+          install -d -m 0755 /opt/vcsa/media
+          tmp_path="${iso_path}.partial"
+          trap 'rm -f "$tmp_path"' EXIT
+          curl --fail --location --retry 4 --retry-delay 5 --connect-timeout 30 --output "$tmp_path" "$iso_url"
+          printf '%s  %s\n' "$iso_sha" "$tmp_path" | sha256sum --check --status
+          mv "$tmp_path" "$iso_path"
+          trap - EXIT
+      no_log: true
+
     - name: Upload authorized local ISO if cloud-init did not download it
-      when: existing_iso.rc != 0
+      when: existing_iso.rc != 0 and iso_url | length == 0
       block:
         - name: Require local ISO path
           ansible.builtin.assert:
             that: iso_local | length > 0
-            fail_msg: "ISO absent on Ubuntu. Set VCSA_ISO_PATH to an authorized local ISO."
+            fail_msg: "ISO absent. Set vcsa_iso_url (HTTPS) or vcsa_iso_local_path in ashburn/terraform.tfvars."
         - name: Hash local ISO
           ansible.builtin.stat:
             path: "{{ iso_local }}"
@@ -65,7 +88,7 @@
             argv: "{{ scp_args + [iso_local, target + ':vcsa-upload.iso'] }}"
         - name: Move uploaded ISO to protected media directory
           ansible.builtin.command:
-            argv: "{{ ssh_args + [target, 'sudo install -d -m 0755 /opt/vcsa/media /mnt/vcsa && sudo mv /home/ubuntu/vcsa-upload.iso ' + remote_iso + ' && sudo chmod 0600 ' + remote_iso] }}"
+            argv: "{{ ssh_args + [target, 'sudo install -d -m 0755 /opt/vcsa/media && sudo mv /home/ubuntu/vcsa-upload.iso ' + remote_iso + ' && sudo chmod 0600 ' + remote_iso] }}"
 
     - name: Verify remote SHA-256 and mount ISO read-only if not mounted
       ansible.builtin.command:
