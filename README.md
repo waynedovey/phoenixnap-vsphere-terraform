@@ -51,15 +51,15 @@ Review every plan before applying. Stop if it shows unexpected replacements or d
 
 ## 3. Install vCenter
 
-Set an authorized VCSA ISO source and its independently verified SHA-256 in `ashburn/terraform.tfvars`:
+Set these ISO values in `ashburn/terraform.tfvars`:
 
 ```hcl
-vcsa_iso_url        = "https://YOUR_AUTHORIZED_VCSA_ISO_URL"
-vcsa_iso_sha256     = "YOUR_VERIFIED_64_CHARACTER_SHA256"
+vcsa_iso_sha256     = "645fb3debfe33331fed5ffd9971d5286b070f412b56a523a78abdc7bece07e29"
+vcsa_iso_url        = "https://d.idc.ir/VMWare/8.0.3/VMware-VCSA-all-8.0.3-24022515.iso"
 vcsa_iso_local_path = ""
 ```
 
-Alternatively, leave `vcsa_iso_url` empty and set `vcsa_iso_local_path` to an absolute ISO path **on your Mac**. See [Broadcom's download instructions](https://knowledge.broadcom.com/external/article/387785/download-vcenter-server-patches-and-isos.html).
+These are the lab's current ISO settings. **The URL is a third-party mirror and the SHA-256 is user-supplied; neither verifies publisher authenticity.** For a trusted source, use [Broadcom's download instructions](https://knowledge.broadcom.com/external/article/387785/download-vcenter-server-patches-and-isos.html).
 
 ```bash
 bash ashburn/scripts/setup-ansible.sh
