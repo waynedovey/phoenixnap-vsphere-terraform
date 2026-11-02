@@ -45,8 +45,8 @@ class InstallerRetirementTests(unittest.TestCase):
         after = source.split(key, 1)[1]
         expression = after.split('jq -e --arg id "$server_id" ', 1)[1].split(
             "\n  ' >/dev/null", 1)[0].strip()
-        self.assertTrue(expression.startswith("'") and expression.endswith("'"))
-        jq_filter = expression[1:-1]
+        self.assertTrue(expression.startswith("'"))
+        jq_filter = expression[1:]
 
         def change(address="pnap_server.installer[0]", actions=None,
                    server_id=SID, hostname="vcsa-installer-ash",
