@@ -98,6 +98,24 @@ The precheck subprocess writes combined output to `/home/ubuntu/vcsa/last-preche
 
 The exact VM name and previous deployment state must be inspected before any manual cleanup. Use `bash ashburn/scripts/vcsa.sh inspect` for a read-only inventory query and HTTPS endpoint probes (443 and 5480). This command reads the ESXi management IP and root password from Terraform state, **does not require VCSA passwords or manual GOVC exports**, and never deletes the VM. An existing `vcsa-ash` is rejected at the Mac wrapper before prompting for passwords, and again by Ansible before any installation. Both checks use `govc find / -type m -name vcsa-ash` (inventory paths) rather than `govc vm.info` return codes; a nonexistent named VM can yield exit status 0 with empty output. A failed inventory query stops deployment rather than treating the VM as absent. An HTTP response on 5480 indicates appliance management reachability, not necessarily a completed vCenter install; confirm the state in its console before considering manual cleanup.
 
+## Slow first boot / ISO preparation
+
+On a newly provisioned Ubuntu server, SSH may be usable **before cloud-init has
+finished downloading the 11 GB VCSA ISO**. `vcsa.sh prepare` now waits up to
+30 minutes for `cloud-init status --wait` before checking media or attempting
+any fallback download. This prevents two downloads writing to the same
+`.partial` ISO file. If cloud-init reports a recoverable error, Ansible may
+still retry a verified ISO download after cloud-init has finished. ISO fallback
+failures report a sanitized network/source, checksum, or remote-system reason
+without revealing installer log contents.
+
+If preparation is interrupted, confirm `/opt/vcsa/MEDIA_READY` and the
+`/mnt/vcsa` mount on Ubuntu. To diagnose boot-time media preparation, inspect
+`/var/log/vcsa-installer-bootstrap.log` locally. A logged `MEDIA_READY` line
+means the ISO matched the **configured** SHA-256 digest and was mounted; it is
+not independent publisher authentication. Re-running `prepare` is safe once
+cloud-init completes and the media is verified.
+
 ## Troubleshooting and safety
 
 - **Ubuntu SSH fails:** verify the installer ID and IP shown by `vcsa.sh`. The per-ID host key file avoids recycled-IP mismatches, but first-use fingerprints still require out-of-band verification if security requires it. Do not disable host key checking or delete `~/.ssh/known_hosts`.
