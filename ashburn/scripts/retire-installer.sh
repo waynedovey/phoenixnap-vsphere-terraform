@@ -147,8 +147,12 @@ PY
 terraform -chdir="$tf" apply -input=false -lock-timeout=30s "$plan_dir/retire.tfplan"
 
 # A successful provider operation must also be reflected in Terraform state.
-# Checking state-list is more reliable than output -raw for a null output.
-if terraform -chdir="$tf" state list | grep -Fxq 'pnap_server.installer[0]'; then
+# Verify state retrieval succeeded; do not mistake an API/state failure for success.
+if ! remaining_state="$(terraform -chdir="$tf" state list)"; then
+  echo "STOP: unable to verify updated Terraform state; check PhoenixNAP portal." >&2
+  exit 1
+fi
+if grep -Fxq 'pnap_server.installer[0]' <<< "$remaining_state"; then
   echo "WARNING: installer still appears in Terraform state; check PhoenixNAP portal." >&2
   exit 1
 fi
