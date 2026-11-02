@@ -77,7 +77,7 @@ if [[ "$stage" == diagnose ]]; then
 from pathlib import Path
 import re
 
-sensitive = re.compile(r'(?i)(?:password|passwd|secret|token|authorization|credential|private.key|api.key)\s*[:=]')
+sensitive = re.compile(r'(?i)(?:password|passwd|secret|token|authorization|credential|private.key|api.key)')
 suspicious = re.compile(r'(?i)(error|failed|failure|invalid|unable|cannot|timeout|certificate|warning|denied|refused|exception|precheck)')
 paths = [Path('/home/ubuntu/vcsa/last-precheck.log')]
 paths += sorted(Path('/tmp').glob('vcsaCliInstaller-*/**/vcsa-cli-installer.log'),
