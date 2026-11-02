@@ -13,5 +13,6 @@ management_allowed_cidrs = ["0.0.0.0/0"]
 
 # Supply an authorized ISO URL and an independently vendor-verified SHA-256
 # to enable cloud-init download; otherwise use VCSA_ISO_PATH in the Ansible stage.
-vcsa_iso_url    = ""
-vcsa_iso_sha256 = ""
+vcsa_iso_url        = ""
+vcsa_iso_sha256     = ""
+vcsa_iso_local_path = ""  # Alternative: authorized ISO file on your Mac
