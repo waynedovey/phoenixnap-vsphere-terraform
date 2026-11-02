@@ -17,10 +17,6 @@ output "installer_public_ip_addresses" {
   description = "Find the server's primary SSH IP from these addresses or PNAP portal."
   value       = try(pnap_server.installer[0].public_ip_addresses, null)
 }
-output "installer_primary_ip_address" {
-  description = "Ubuntu installer SSH endpoint provided by PhoenixNAP (not an IP allocation range)."
-  value       = try(pnap_server.installer[0].primary_ip_address, null)
-}
 output "quoted_esxi_usd_per_hour" {
   value = local.esxi_rate
 }
