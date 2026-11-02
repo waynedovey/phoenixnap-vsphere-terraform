@@ -229,22 +229,23 @@
           - "lookup('env', 'ESXI_NTP_SYNC_CONFIRMED') == 'YES'"
         fail_msg: "ESXi must report Time Synchronized: true. Verify with esxcli system ntp get, then set ESXI_NTP_SYNC_CONFIRMED=YES."
 
-    - name: Check whether VCSA VM already exists before deployment
+    - name: Query actual ESXi VM inventory before deployment
       when: stage == 'deploy'
       ansible.builtin.command:
-        argv: [govc, vm.info, vcsa-ash]
+        argv: [govc, find, /, -type, m, -name, vcsa-ash]
       environment: "{{ govc_env }}"
       register: existing_vcsa_vm
       changed_when: false
-      failed_when: false
+      # Deliberately fail closed when inventory cannot be queried.
+      # govc vm.info <missing-name> exits 0 with no output; never use rc alone.
       no_log: true
 
-    - name: Refuse deployment over an existing or failed VCSA VM
+    - name: Refuse deployment only when VCSA VM is actually in inventory
       when: stage == 'deploy'
       ansible.builtin.assert:
         that:
-          - existing_vcsa_vm.rc != 0
-        fail_msg: "A VM named vcsa-ash already exists on ESXi. Inspect and explicitly clean up the failed VM before redeploying."
+          - existing_vcsa_vm.stdout | trim == ''
+        fail_msg: "ESXi inventory already contains vcsa-ash. Run bash ashburn/scripts/vcsa.sh inspect before deciding whether any VM cleanup is needed."
 
     - name: Create private installer working directory on Ubuntu
       ansible.builtin.command:
