@@ -9,12 +9,17 @@ install -d -m 0755 /opt/vcsa/media /mnt/vcsa
 ISO_URL="${iso_url}"
 ISO_SHA256="${iso_sha256}"
 ISO_PATH="/opt/vcsa/media/VMware-VCSA-all-8.0.3-24022515.iso"
-if [ -z "$ISO_SHA256" ]; then
-  echo "No independently verified ISO checksum; skipping untrusted download."
+if [ -z "$ISO_SHA256" ] || [ -z "$ISO_URL" ]; then
+  echo "No VCSA ISO URL and/or checksum configured; skipping download. Ansible prepare can fetch from the configured source or upload a local authorized ISO."
   exit 0
 fi
-curl --fail --location --retry 4 --retry-delay 5 --connect-timeout 30 --output "$ISO_PATH" "$ISO_URL"
-printf '%s  %s\n' "$ISO_SHA256" "$ISO_PATH" | sha256sum --check --status
+case "$ISO_URL" in https://*) ;; *) echo "ISO URL must use HTTPS"; exit 1 ;; esac
+tmp_path="${ISO_PATH}.partial"
+trap 'rm -f "$tmp_path"' EXIT
+curl --fail --location --retry 4 --retry-delay 5 --connect-timeout 30 --output "$tmp_path" "$ISO_URL"
+printf '%s  %s\n' "$ISO_SHA256" "$tmp_path" | sha256sum --check --status
+mv "$tmp_path" "$ISO_PATH"
+trap - EXIT
 mount -o loop,ro "$ISO_PATH" /mnt/vcsa
 test -f /mnt/vcsa/vcsa-cli-installer/lin64/vcsa-deploy
 touch /opt/vcsa/MEDIA_READY
