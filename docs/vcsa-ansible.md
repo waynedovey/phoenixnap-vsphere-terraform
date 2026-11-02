@@ -92,7 +92,7 @@ bash ashburn/scripts/vcsa.sh diagnose
 
 The precheck subprocess writes combined output to `/home/ubuntu/vcsa/last-precheck.log` on Ubuntu with permissions 0600; the diagnostic also examines recent `/tmp/vcsaCliInstaller-*/.../vcsa-cli-installer.log` files. **If the failed precheck preceded this logging improvement**, first try diagnose for VMware's earlier logs, then rerun `precheck` after pulling the changes to capture any missing Python/CLI errors. The diagnostic does not deploy the appliance or need VCSA passwords. It suppresses lines with common secret assignments, but inspect output before sharing it. Raw installer logs may contain secrets.
 
-The exact VM name and previous deployment state must be inspected before any manual cleanup.
+The exact VM name and previous deployment state must be inspected before any manual cleanup. Use `bash ashburn/scripts/vcsa.sh inspect` for a read-only inventory query and HTTPS endpoint probes (443 and 5480). This command reads the ESXi management IP and root password from Terraform state, **does not require VCSA passwords or manual GOVC exports**, and never deletes the VM. An existing `vcsa-ash` is rejected at the Mac wrapper before prompting for passwords, and again by Ansible before any installation. An HTTP response on 5480 indicates appliance management reachability, not necessarily a completed vCenter install; confirm the state in its console before considering manual cleanup.
 
 ## Troubleshooting and safety
 
