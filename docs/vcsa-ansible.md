@@ -25,21 +25,23 @@ This creates/reuses `ashburn/.venv` with Python 3.14, Ansible Core 2.21, pyVmomi
 
 ## Prepare the ISO and VCSA configuration
 
-After `terraform -chdir=ashburn apply servers.tfplan` succeeds, find the **temporary Ubuntu server's primary IPv4** in PhoenixNAP and verify its SSH host key.
+After `terraform -chdir=ashburn apply servers.tfplan`, **do not manually export the installer IP or ISO checksum**. The wrapper reads the current installer ID and public IPv4 from Terraform outputs and evaluates the ISO settings from `ashburn/terraform.tfvars`.
 
-```bash
-export INSTALLER_IP="UBUNTU_PRIMARY_IP"
-ssh ubuntu@"$INSTALLER_IP" true
-export VCSA_ISO_SHA256="INDEPENDENTLY_VENDOR_VERIFIED_64_HEX_DIGEST"
+Set an authorized ISO location **once** in `ashburn/terraform.tfvars`:
+
+```hcl
+vcsa_iso_url        = "https://YOUR_AUTHORIZED_VCSA_ISO_URL"
+vcsa_iso_sha256     = "YOUR_INDEPENDENTLY_VENDOR_VERIFIED_64_HEX_SHA256"
+vcsa_iso_local_path = ""
 ```
 
-If your `vcsa_iso_url` and `vcsa_iso_sha256` in Terraform were both approved and the cloud-init download succeeded, the remote ISO already exists. Otherwise supply a **legitimate local VMware VCSA ISO**:
+Alternatively, set `vcsa_iso_url = ""` and `vcsa_iso_local_path = "/absolute/path/to/authorized/VMware-VCSA.iso"`. The checksum is required in both cases. Cloud-init downloads and verifies the ISO at boot if the URL and checksum were present during provisioning. If no ISO was downloaded, `prepare` automatically retries the configured HTTPS download or uploads the local file, then verifies its digest.
 
-```bash
-export VCSA_ISO_PATH="/absolute/path/to/VMware-VCSA-all-8.0.3-24022515.iso"
-```
+**ISO location:** Ubuntu stores the downloaded file as `/opt/vcsa/media/VMware-VCSA-all-8.0.3-24022515.iso` and mounts it at `/mnt/vcsa`. The source URL is `vcsa_iso_url` in `terraform.tfvars`; it is intentionally blank by default. Find legitimately accessible VCSA media through [Broadcom's official ISO download instructions](https://knowledge.broadcom.com/external/article/387785/download-vcenter-server-patches-and-isos.html). The previously used third-party mirror and its observed hash were **not** independently publisher-verified and are not restored as defaults.
 
-`prepare` uploads that file **only if the ISO is absent on Ubuntu**. If an incomplete or wrong ISO already exists remotely, fix it there before retrying; the checksum check deliberately fails rather than trusting it.
+**SSH on repeated builds:** PhoenixNAP can reassign the same Ubuntu IP to a new physical server with a new host key. The wrapper now uses `private/ssh/installer-<SERVER_ID>.known_hosts` and OpenSSH `StrictHostKeyChecking=accept-new`: it accepts a key only on the first connection for that server ID, then rejects subsequent changes. It no longer conflicts with your global `~/.ssh/known_hosts`, and you should not delete or edit that global file to bypass warnings. First-contact trust is TOFU; for higher assurance compare the fingerprint against a trusted PhoenixNAP console or out-of-band source.
+
+The wrapper archives existing VCSA configuration and ISO template when it detects a new installer server ID. If an incomplete or incorrect ISO already exists remotely, the checksum verification deliberately fails rather than trusting it.
 
 Check that PhoenixNAP has an ESXi port group named `public.<VLAN>` (for the previous lab it was `public.5`). Ansible now **uses the existing public port group directly**. It does not create `vcsa-public` or assume VLAN 3.
 
@@ -57,7 +59,9 @@ The generated `private/vcsa-config-ashburn.json` is not overwritten automaticall
 The freshly installed ESXi host has a self-signed TLS certificate. VMware's CLI normally prompts to accept its fingerprint, which fails with an EOF when run unattended through Ansible. Before precheck, **independently verify** the ESXi TLS certificate fingerprint against the host's certificate shown in a trusted ESXi management session. To collect the certificate as seen from the Ubuntu installer:
 
 ```bash
-ssh ubuntu@"$INSTALLER_IP" \
+# Use the installer IP printed by 'bash ashburn/scripts/vcsa.sh prepare'.
+# Substitute your freshly provisioned ESXi management IP for 192.240.198.138.
+ssh ubuntu@INSTALLER_IPV4 \
   'echo | openssl s_client -connect 192.240.198.138:443 -servername 192.240.198.138 2>/dev/null | openssl x509 -noout -fingerprint -sha256'
 ```
 
@@ -85,7 +89,7 @@ bash ashburn/scripts/register-esxi.sh
 
 ## Troubleshooting and safety
 
-- **Ubuntu SSH fails:** use the server's primary IPv4, verify its SSH host key, and use the SSH keys installed by PhoenixNAP. Do not use the public IP *range* as an SSH address.
+- **Ubuntu SSH fails:** verify the installer ID and IP shown by `vcsa.sh`. The per-ID host key file avoids recycled-IP mismatches, but first-use fingerprints still require out-of-band verification if security requires it. Do not disable host key checking or delete `~/.ssh/known_hosts`.
 - **ISO validation fails:** confirm legitimate source, the independently verified digest, and `/var/log/vcsa-installer-bootstrap.log` on Ubuntu. An empty checksum in Terraform makes cloud-init skip download.
 - **VCSA connectivity fails:** compare the detected `public.<VLAN>` port group, the new `/29`, DNS, gateway, and the VCSA guest IP. The old hardcoded `vcsa-public` VLAN 3 was incorrect: public traffic used VLAN 5.
 - **NTP/firstboot fails:** confirm `esxcli system ntp get` reports `Time Synchronized: true`; the new single-host default uses VMware Tools host-time sync. If using guest NTP, independently test DNS and UDP/123 from the VCSA network. Don't simply rerun deploy into an existing failed VM.
