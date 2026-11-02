@@ -77,3 +77,9 @@ variable "vcsa_iso_sha256" {
     error_message = "Provide a 64-hex-character SHA-256 digest or leave blank."
   }
 }
+
+variable "vcsa_iso_local_path" {
+  description = "Optional absolute path to an authorized VCSA ISO on the Mac; Ansible uploads when Ubuntu has no ISO."
+  type        = string
+  default     = ""
+}
