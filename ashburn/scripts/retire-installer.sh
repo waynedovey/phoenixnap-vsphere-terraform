@@ -182,5 +182,6 @@ if grep -Fxq 'pnap_server.installer[0]' <<< "$remaining_state"; then
   echo "WARNING: installer still appears in Terraform state; check PhoenixNAP portal." >&2
   exit 1
 fi
-echo "Installer retired. Ignored ashburn/zz-installer-retired.auto.tfvars prevents reprovisioning."\necho "User ashburn/terraform.tfvars was NOT modified."
+echo "Installer retired. Ignored ashburn/zz-installer-retired.auto.tfvars prevents reprovisioning."
+echo "User ashburn/terraform.tfvars was NOT modified."
 echo "Verify PhoenixNAP Servers / IP allocations and billing are updated."
