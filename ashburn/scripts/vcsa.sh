@@ -355,5 +355,24 @@ if [[ "$stage" == deploy ]]; then
     fi
   fi
 else
+  # Manual 'prepare' also shows transfer activity while the Ansible task waits
+  # for cloud-init. build-all.sh already has its own monitor, so do not double
+  # the display or initiate a second download.
+  if [[ "$stage" == prepare && "${VCSA_ISO_MONITOR_EXTERNAL:-}" != YES ]]; then
+    python3 -c 'import ast,pathlib; ast.parse(pathlib.Path("ashburn/scripts/iso-progress.py").read_text())' || {
+      echo "STOP: ISO progress monitor has invalid Python syntax." >&2
+      exit 1
+    }
+    python3 -u ashburn/scripts/iso-progress.py \
+      --installer-ip "$INSTALLER_IP" \
+      --known-hosts "$ASHBURN_INSTALLER_KNOWN_HOSTS" \
+      --interval 15 &
+    iso_monitor_pid=$!
+    cleanup_iso_progress() {
+      kill "$iso_monitor_pid" 2>/dev/null || true
+      wait "$iso_monitor_pid" 2>/dev/null || true
+    }
+    trap cleanup_iso_progress EXIT
+  fi
   ashburn/.venv/bin/ansible-playbook -i 'localhost,' -c local ashburn/ansible/vcsa.yml
 fi
