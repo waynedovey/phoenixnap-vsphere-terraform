@@ -32,9 +32,9 @@ bash ashburn/scripts/vcsa.sh deploy
 bash ashburn/scripts/register-esxi.sh
 ```
 
-No `INSTALLER_IP`, `VCSA_ISO_SHA256` or `VCSA_ISO_PATH` exports are required. `vcsa.sh` reads the live installer IPv4 from Terraform outputs and `vcsa_iso_url`, `vcsa_iso_sha256`, and optional `vcsa_iso_local_path` from `ashburn/terraform.tfvars`. Supply an authorized HTTPS ISO URL or a local Mac ISO file, plus an independently verified SHA-256. Reused IPs are handled with a per-server SSH known_hosts file (first-use trust); stale generated VCSA settings are automatically archived for a newly provisioned installer ID.
+No `INSTALLER_IP`, `VCSA_ISO_SHA256`, `VCSA_ISO_PATH`, or `VCSA_ESXI_CERT_SHA256` exports are required. `vcsa.sh` resolves the installer IPv4 from current Terraform state and `vcsa_iso_url`, `vcsa_iso_sha256`, and optional `vcsa_iso_local_path` from `ashburn/terraform.tfvars`. Supply an authorized HTTPS ISO URL or a local Mac ISO file, plus an independently verified SHA-256. Reused IPs are handled with a per-server SSH known_hosts file (first-use trust); stale generated VCSA settings are automatically archived for a newly provisioned installer ID.
 
-Check ESXi NTP synchronization with `bash ashburn/scripts/esxi-time.sh check` before precheck/deploy. Ansible uses the current PhoenixNAP `public.<VLAN>` port group. Set verified `VCSA_ESXI_CERT_SHA256`, `ESXI_NTP_SYNC_CONFIRMED=YES` and required VMware/PhoenixNAP approvals before deploying. See the [Ansible installation guide](../docs/vcsa-ansible.md).
+Check ESXi NTP synchronization with `bash ashburn/scripts/esxi-time.sh check` before precheck/deploy. Ansible discovers PhoenixNAP's VMkernel management network `public.<VLAN>` and creates a dedicated `vcsa-public` **VM-only** port group on the same VLAN. ESXi TLS fingerprint pinning is automatic (trust on first use); set `ESXI_NTP_SYNC_CONFIRMED=YES` only after verifying synchronization, and provide required VMware/PhoenixNAP approvals before deploying. See the [Ansible installation guide](../docs/vcsa-ansible.md).
 
 **Destroy the full lab:**
 
