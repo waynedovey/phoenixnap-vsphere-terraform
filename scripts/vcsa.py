@@ -108,13 +108,14 @@ def verify_esxi_certificate(config, env):
     """Pin the ESXi TLS certificate before permitting the CLI's noninteractive bypass.
 
     This direct check runs on the same Ubuntu host as the VMware installer.
-    The pinned fingerprint must be verified out of band by the operator.
+    The Mac wrapper saves a per-PhoenixNAP-server TOFU pin on first use.
+    Independent out-of-band verification is recommended for higher assurance.
     """
     expected = env.get("VCSA_ESXI_CERT_SHA256", "").strip().replace(":", "").lower()
     if not re.fullmatch(r"[0-9a-f]{64}", expected):
         raise ValueError(
-            "Set VCSA_ESXI_CERT_SHA256 to the independently verified ESXi TLS "
-            "certificate SHA-256 fingerprint (64 hex digits)."
+            "Missing ESXi TLS SHA-256 certificate pin from the Mac wrapper "
+            "(64 hex digits). Run ashburn/scripts/vcsa.sh rather than invoking this directly."
         )
 
     esxi = get_nested(config, ("new_vcsa", "esxi"))
@@ -131,7 +132,7 @@ def verify_esxi_certificate(config, env):
             f"ESXi TLS SHA-256 fingerprint mismatch for {hostname}:{port}. "
             "Refusing to bypass VMware's interactive certificate prompt."
         )
-    print("ESXi TLS SHA-256 fingerprint verified against supplied pin.", flush=True)
+    print("ESXi TLS certificate matches the fingerprint pinned by the Mac wrapper.", flush=True)
 
 
 def main():
@@ -170,7 +171,8 @@ def main():
             with os.fdopen(fd, "w", encoding="utf-8") as outfile:
                 json.dump(config, outfile, indent=2)
 
-            # The ESXi certificate was independently pinned just above, so bypass only
+            # The Mac wrapper pinned this certificate (TOFU on the first connection);
+            # this Ubuntu-side verification checks the second path before bypassing
             # VMware's interactive ESXi self-signed certificate prompt.
             command = [
                 str(installer), "install", "--accept-eula",
