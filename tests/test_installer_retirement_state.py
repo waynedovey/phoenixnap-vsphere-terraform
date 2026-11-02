@@ -37,6 +37,9 @@ with Path(os.environ["TF_CALLS"]).open("a") as output:
     output.write(" ".join(args) + "\\n")
 if args[-2:] == ["state", "pull"]:
     print(Path(os.environ["TF_STATE"]).read_text())
+elif "console" in args:
+    # The ignored, auto-loaded lifecycle override makes the effective var false.
+    print("false" if Path("zz-installer-retired.auto.tfvars").exists() else "true")
 elif "plan" in args:
     print("Mock terraform: plan created")
 elif "show" in args:
@@ -74,10 +77,13 @@ else:
                 ["bash", str(base / "ashburn/scripts/retire-installer.sh"), "--yes"],
                 env=env, capture_output=True, text=True, timeout=15,
             )
-            return result, calls.read_text(), (base / "ashburn/terraform.tfvars").read_text()
+            marker = base / "ashburn/zz-installer-retired.auto.tfvars"
+            return (result, calls.read_text(),
+                    (base / "ashburn/terraform.tfvars").read_text(),
+                    marker.read_text() if marker.exists() else None)
 
     def test_missing_root_outputs_does_not_block_resource_detection(self):
-        result, calls, tfvars = self.run_retirement(include_installer=True)
+        result, calls, tfvars, marker = self.run_retirement(include_installer=True)
         # Reaches the plan, which intentionally rejects ESXi deletion.
         self.assertIn("Terraform plan is NOT an installer-only deletion", result.stderr)
         self.assertIn("state pull", calls)
@@ -85,15 +91,18 @@ else:
         self.assertNotIn("output", calls)
         self.assertNotIn("apply", calls)
         self.assertIn("enable_installer = true", tfvars)
+        self.assertIsNone(marker)
 
     def test_absent_installer_is_idempotent_without_outputs(self):
-        result, calls, tfvars = self.run_retirement(include_installer=False)
+        result, calls, tfvars, marker = self.run_retirement(include_installer=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("nothing to delete", result.stdout)
         self.assertNotIn("plan", calls)
         self.assertNotIn("apply", calls)
         self.assertNotIn("output", calls)
         self.assertIn("enable_installer = true", tfvars)
+        self.assertIn("enable_installer = false", marker)
+        self.assertIn("console", calls)
 
 
 if __name__ == "__main__":
