@@ -327,6 +327,16 @@
             'PNAP_VCENTER_SUPPORT_CONFIRMED': 'YES',
             'VCSA_DEPLOY_APPROVED': 'YES',
           })
+          # The Mac monitor uses a unique marker so a preceding precheck's
+          # progress log cannot be mistaken for the actual installation.
+          import re
+          from pathlib import Path
+          run_id = {{ lookup('env', 'VCSA_DEPLOY_RUN_ID') | to_json }}
+          if not re.fullmatch(r'[a-f0-9]{16}', run_id):
+            raise ValueError('Missing valid VCSA_DEPLOY_RUN_ID from vcsa.sh')
+          Path('/home/ubuntu/vcsa/.deploy-' + run_id + '.start').touch(
+            mode=0o600, exist_ok=False
+          )
           sys.exit(subprocess.run(
             ['python3', 'vcsa.py', 'deploy', '--template', 'vcsa-config.json'],
             cwd='/home/ubuntu/vcsa', input='DEPLOY-VCENTER\n',
