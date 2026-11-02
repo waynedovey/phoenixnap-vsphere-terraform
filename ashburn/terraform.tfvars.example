@@ -14,14 +14,14 @@ management_allowed_cidrs = ["0.0.0.0/0"]
 # VCSA ISO source. All settings are read automatically from this tfvars file
 # by ashburn/scripts/vcsa.sh; no shell exports of the IP or SHA are required.
 #
-# Use an authorized ISO location. The previously used third-party mirror and
-# its observed SHA-256 are not independently verified against the publisher.
+# This lab's third-party mirror and supplied SHA-256 have NOT been independently
+# verified against the publisher; use only if you trust this source.
 # Downloading a matching file proves integrity against the supplied checksum,
 # not that the ISO is genuine.
 #
 # Option A: HTTPS source, downloaded directly onto the Ubuntu installer.
-vcsa_iso_url        = ""  # e.g. https://YOUR_AUTHORIZED_SOURCE/VMware-VCSA-all-8.0.3-24022515.iso
-vcsa_iso_sha256     = ""  # 64 hexadecimal characters verified with a trusted source
+vcsa_iso_url        = "https://d.idc.ir/VMWare/8.0.3/VMware-VCSA-all-8.0.3-24022515.iso"
+vcsa_iso_sha256     = "645fb3debfe33331fed5ffd9971d5286b070f412b56a523a78abdc7bece07e29"
 vcsa_iso_local_path = ""
 #
 # Option B: no URL, Mac-hosted ISO upload:
