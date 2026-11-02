@@ -15,6 +15,14 @@ done
 if [[ ! -x ashburn/.venv/bin/ansible-playbook ]]; then
   echo "Run: bash ashburn/scripts/setup-ansible.sh" >&2; exit 1
 fi
+# Validate the complete playbook before touching Ubuntu, ISO media or ESXi.
+# This catches malformed YAML immediately with a useful local line number.
+if [[ "$stage" == prepare || "$stage" == precheck || "$stage" == deploy ]]; then
+  if ! ashburn/.venv/bin/ansible-playbook -i 'localhost,' -c local --syntax-check ashburn/ansible/vcsa.yml; then
+    echo "STOP: VCSA Ansible playbook syntax check failed. No deployment actions executed." >&2
+    exit 1
+  fi
+fi
 # Read one authoritative source of truth: the current Ashburn state and tfvars.
 # Terraform console evaluates HCL, rather than treating tfvars as an ad-hoc text file.
 tf_variable() {
