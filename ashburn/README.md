@@ -32,7 +32,9 @@ bash ashburn/scripts/vcsa.sh deploy
 bash ashburn/scripts/register-esxi.sh
 ```
 
-Set `INSTALLER_IP`, vendor-verified `VCSA_ISO_SHA256` and any necessary `VCSA_ISO_PATH` first. Run `bash ashburn/scripts/esxi-time.sh check` and ensure ESXi reports `Time Synchronized: true` before precheck/deploy; use `configure` only if required and approved. Ansible discovers the existing PhoenixNAP `public.<VLAN>` port group and defaults to VMware Tools time sync. Set verified `VCSA_ESXI_CERT_SHA256`, `ESXI_NTP_SYNC_CONFIRMED=YES`, and required VMware/PhoenixNAP approvals before deploying. See the [Ansible installation guide](../docs/vcsa-ansible.md).
+No `INSTALLER_IP`, `VCSA_ISO_SHA256` or `VCSA_ISO_PATH` exports are required. `vcsa.sh` reads the live installer IPv4 from Terraform outputs and `vcsa_iso_url`, `vcsa_iso_sha256`, and optional `vcsa_iso_local_path` from `ashburn/terraform.tfvars`. Supply an authorized HTTPS ISO URL or a local Mac ISO file, plus an independently verified SHA-256. Reused IPs are handled with a per-server SSH known_hosts file (first-use trust); stale generated VCSA settings are automatically archived for a newly provisioned installer ID.
+
+Check ESXi NTP synchronization with `bash ashburn/scripts/esxi-time.sh check` before precheck/deploy. Ansible uses the current PhoenixNAP `public.<VLAN>` port group. Set verified `VCSA_ESXI_CERT_SHA256`, `ESXI_NTP_SYNC_CONFIRMED=YES` and required VMware/PhoenixNAP approvals before deploying. See the [Ansible installation guide](../docs/vcsa-ansible.md).
 
 **Destroy the full lab:**
 
