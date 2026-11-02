@@ -42,9 +42,11 @@
     # cloud-init finishes downloading/mounting it. A file-existence check made
     # during this window launched a SECOND curl to the SAME .partial path.
     # Wait for cloud-init to terminate before considering the fallback upload.
+    # On slower mirrors, ~11 GiB can take well over 30 minutes. The read-only
+    # Mac ISO monitor now shows live downloaded bytes; allow up to two hours.
     - name: Wait for Ubuntu cloud-init ISO bootstrap to finish
       ansible.builtin.command:
-        argv: "{{ ssh_args + [target, 'sudo timeout 1800 cloud-init status --wait'] }}"
+        argv: "{{ ssh_args + [target, 'sudo timeout 7200 cloud-init status --wait'] }}"
       register: cloud_init_wait
       changed_when: false
       failed_when: false
