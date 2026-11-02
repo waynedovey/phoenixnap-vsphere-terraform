@@ -80,6 +80,9 @@ bash ashburn/scripts/vcsa.sh precheck
 # If precheck fails, inspect filtered private logs automatically:
 # bash ashburn/scripts/vcsa.sh diagnose
 
+# Read-only inspection of any VCSA VM before an attempted redeploy:
+# bash ashburn/scripts/vcsa.sh inspect
+
 # Only after required PhoenixNAP/VMware approvals and successful precheck:
 export PNAP_VCENTER_SUPPORT_CONFIRMED=YES
 export VCSA_DEPLOY_APPROVED=YES
@@ -95,7 +98,7 @@ SSH uses a private, per-installer-server-ID `known_hosts` file with `StrictHostK
 
 **Troubleshooting:** Ansible conceals the password-bearing command output using `no_log`, but `vcsa.sh` now records the VMware precheck's stdout/stderr in mode-0600 `/home/ubuntu/vcsa/last-precheck.log`. Run `bash ashburn/scripts/vcsa.sh diagnose` for a read-only, filtered error summary from that file and recent VMware CLI logs. Diagnose does not ask for VCSA passwords or deploy anything. Inspect the private raw log yourself if the summary omits a sensitive line; don't post raw logs containing credentials.
 
-The deploy stage refuses to overwrite an existing `vcsa-ash` VM. Deployment requires typing `DEPLOY-VCENTER` and prompts for passwords. See [ISO, networking, NTP and Ansible prerequisites](docs/vcsa-ansible.md).
+The deploy stage refuses to overwrite an existing `vcsa-ash` VM **before asking for VCSA passwords**. If it reports a duplicate, run `bash ashburn/scripts/vcsa.sh inspect` to display ESXi's current VM state, NIC, and reachability of the expected VCSA management endpoints. **Do not delete the VM unless you have separately confirmed it is an abandoned, failed installation and that no data needs preserving.** There is no automatic deletion. Deployment requires typing `DEPLOY-VCENTER` and prompts for passwords only after the duplicate check. See [ISO, networking, NTP and Ansible prerequisites](docs/vcsa-ansible.md).
 
 ## Destroy everything
 
