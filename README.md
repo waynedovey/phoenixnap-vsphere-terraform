@@ -66,7 +66,7 @@ bash ashburn/scripts/esxi-time.sh configure
 bash ashburn/scripts/esxi-time.sh check
 ```
 
-Proceed only after the output reports **Time Synchronized: true**. The new Ansible workflow uses ESXi's existing `public.<VLAN>` port group and VMware Tools host time sync by default; it does **not** create a hardcoded VLAN 3 port group.
+Proceed only after the output reports **Time Synchronized: true**. The Ansible workflow discovers the actual VLAN and switch used by ESXi's existing `public.<VLAN>` **VMkernel management** port group, then creates a separate `vcsa-public` **VM-only** port group on the same VLAN. It never attaches VMs to `public.<VLAN>`, and it does not modify the management interface or use a hardcoded VLAN. VCSA uses VMware Tools host time sync by default.
 
 ```bash
 bash ashburn/scripts/setup-ansible.sh
@@ -88,6 +88,8 @@ bash ashburn/scripts/register-esxi.sh
 ```
 
 For ESXi TLS, `vcsa.sh precheck` automatically retrieves and pins the SHA-256 certificate fingerprint in `private/certs/esxi-<SERVER_ID>.sha256`, keyed by the current PhoenixNAP ESXi server ID. Later runs reject a changed certificate for the same ID. **First-use pinning is trust-on-first-use (TOFU), not independent identity verification**; for higher assurance compare the displayed fingerprint using a trusted PhoenixNAP management channel. The Ubuntu installer independently rechecks that same pin before invoking VMware's CLI.
+
+The port group fix also archives and regenerates any previously generated VCSA JSON incorrectly targeting `public.<VLAN>` (the VMware OVF precheck error was `Invalid target name (public.2)` with no target VM networks). The `precheck` stage creates only the dedicated VM port group when absent; repeated runs validate it without changing it.
 
 SSH uses a private, per-installer-server-ID `known_hosts` file with `StrictHostKeyChecking=accept-new`. This avoids false host-key conflicts when PhoenixNAP reuses an IP, while still rejecting subsequent changes for the same server. **First connection is trust-on-first-use**, so verify the fingerprint through the PhoenixNAP console when stronger host authentication is required. No global SSH known_hosts edits or disabled host-key checks are needed. The wrapper also archives stale VCSA JSON/templates when a new installer ID is detected.
 
