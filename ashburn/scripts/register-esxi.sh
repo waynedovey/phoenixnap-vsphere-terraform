@@ -75,4 +75,30 @@ if [[ ! -x "$repo_root/ashburn/.venv/bin/ansible-playbook" ]]; then
   echo "Missing Ashburn Ansible venv. Run: bash ashburn/scripts/setup-ansible.sh" >&2
   exit 1
 fi
+# The login information is displayed only after Ansible successfully
+# registers and verifies the ESXi host. Never persist passwords or emit them
+# into automated logs by default.
 "$repo_root/ashburn/.venv/bin/ansible-playbook" -i localhost, -c local "$repo_root/ashburn/ansible/register-esxi.yml"
+
+printf '\n'
+printf '%s\n' '========================================'
+printf '%s\n' '       vCenter Server Login'
+printf '%s\n' '========================================'
+printf 'Login URL : https://%s/ui\n' "$ASHBURN_VCENTER_IP"
+printf 'Username  : %s\n' "$ASHBURN_VCENTER_USERNAME"
+printf '%s\n' 'Password  : [hidden - the VCSA SSO password entered earlier]'
+printf '%s\n' '========================================'
+
+# For interactive use, allow an explicit reveal after registration. This is
+# the same credential entered above; never discover or invent a password.
+# Showing it on screen risks terminal recording and scrollback exposure.
+if [[ -t 0 && -t 1 ]]; then
+  reveal=''
+  read -r -p 'Reveal SSO password on screen? [y/N]: ' reveal || true
+  case "$reveal" in
+    y|Y|yes|YES)
+      printf 'Password  : %s\n' "$VCSA_SSO_PASSWORD"
+      printf '%s\n' 'CAUTION: password is visible in terminal scrollback.'
+      ;;
+  esac
+fi
