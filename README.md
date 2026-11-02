@@ -100,7 +100,7 @@ The deployment command shows **live VMware task progress**. If VMware returns a 
 bash ashburn/scripts/register-esxi.sh
 ```
 
-After successful registration **and verification of the exact ESXi host**, this script automatically destroys only the temporary PhoenixNAP Ubuntu installer. It checks the Terraform deletion plan and saves `enable_installer = false` locally to avoid recreating it. If registration or the plan check fails, Ubuntu stays running. The script then prints the vCenter login URL and username; the SSO password is hidden by default, with an optional interactive reveal.
+After successful registration **and verification of the exact ESXi host**, this script automatically destroys only the temporary PhoenixNAP Ubuntu installer. It checks the Terraform deletion plan and saves `enable_installer = false` locally to avoid recreating it. If registration or the plan check fails, Ubuntu stays running. Cleanup reads the managed installer directly from Terraform state, so it also works if the `installer_id` root output is missing. Verify retirement with `terraform -chdir=ashburn state list` (there should be no `pnap_server.installer[0]`), and confirm the PhoenixNAP portal and billing. The script then prints the vCenter login URL and username; the SSO password is hidden by default, with an optional interactive reveal.
 
 ## 5. Destroy the lab
 
