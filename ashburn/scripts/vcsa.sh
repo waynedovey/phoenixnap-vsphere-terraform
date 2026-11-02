@@ -36,22 +36,71 @@ tf_variable() {
   local expr="$1"
   printf '%s\n' "var.${expr}" | terraform -chdir=ashburn console -no-color | jq -er 'select(type == "string")'
 }
-installer_id="$(terraform -chdir=ashburn output -raw installer_id)"
-esxi_id="$(terraform -chdir=ashburn output -raw esxi_id)"
-[[ "$installer_id" =~ ^[0-9a-f]{24}$ && "$esxi_id" =~ ^[0-9a-f]{24}$ ]] || {
-  echo "Expected current Ashburn installer and ESXi IDs in Terraform state." >&2; exit 1;
-}
-# PhoenixNAP's managed server resource exposes public_ip_addresses, which may
-# contain a /31 or an address range rather than a single IPv4. A separate
-# resolver handles that format and rejects ambiguous addresses.
-if ! INSTALLER_IP="$(terraform -chdir=ashburn state pull | python3 ashburn/scripts/resolve-installer-ip.py)"; then
-  echo "STOP: cannot identify installer SSH IP from Ashburn Terraform state." >&2
-  echo "Inspect: terraform -chdir=ashburn output -json installer_public_ip_addresses" >&2
+# Resolve managed server identities from the state itself. Terraform may
+# omit null root outputs after the temporary installer has been retired.
+# This also makes read-only 'inspect' usable after successful cleanup.
+if ! ashburn_state="$(terraform -chdir=ashburn state pull)"; then
+  echo "STOP: unable to read Ashburn Terraform state." >&2
   exit 1
 fi
-[[ "$INSTALLER_IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || {
-  echo "STOP: resolved installer IP is invalid: $INSTALLER_IP" >&2; exit 1;
+esxi_id="$(jq -er '
+  [.resources[]? | select(.mode == "managed" and .type == "pnap_server" and .name == "esxi")
+   | .instances[]?.attributes.id | select(type == "string")]
+  | if length == 1 then .[0] else empty end
+' <<<"$ashburn_state")" || {
+  echo "STOP: expected exactly one managed Ashburn ESXi host in Terraform state." >&2
+  exit 1
 }
+[[ "$esxi_id" =~ ^[0-9a-f]{24}$ ]] || {
+  echo "STOP: invalid managed ESXi identifier." >&2
+  exit 1
+}
+installer_count="$(jq -er '
+  [.resources[]? | select(.mode == "managed" and .type == "pnap_server" and .name == "installer")
+   | .instances[]?] | length
+' <<<"$ashburn_state")" || {
+  echo "STOP: unable to inspect installer resources in Ashburn state." >&2
+  exit 1
+}
+[[ "$installer_count" == 0 || "$installer_count" == 1 ]] || {
+  echo "STOP: multiple installer instances in state. Refusing to guess." >&2
+  exit 1
+}
+installer_id=""
+INSTALLER_IP=""
+if [[ "$installer_count" == 1 ]]; then
+  installer_id="$(jq -er '
+    [.resources[]? | select(.mode == "managed" and .type == "pnap_server" and .name == "installer")
+     | .instances[]?.attributes
+     | select(.hostname == "vcsa-installer-ash" and .location == "ASH")
+     | .id | select(type == "string")]
+    | if length == 1 then .[0] else empty end
+  ' <<<"$ashburn_state")" || {
+    echo "STOP: managed Ubuntu installer identity does not match vcsa-installer-ash." >&2
+    exit 1
+  }
+  [[ "$installer_id" =~ ^[0-9a-f]{24}$ ]] || {
+    echo "STOP: invalid managed installer identifier." >&2
+    exit 1
+  }
+  # PhoenixNAP's public_ip_addresses can contain a /31 or IP range; never
+  # guess. The existing resolver validates the provider's assignment format.
+  if ! INSTALLER_IP="$(python3 ashburn/scripts/resolve-installer-ip.py <<<"$ashburn_state")"; then
+    echo "STOP: cannot identify installer SSH IP from managed Terraform state." >&2
+    exit 1
+  fi
+  [[ "$INSTALLER_IP" =~ ^[0-9]{1,3}(\\.[0-9]{1,3}){3}$ ]] || {
+    echo "STOP: resolved installer IP is invalid." >&2
+    exit 1
+  }
+elif [[ "$stage" != inspect ]]; then
+  echo "STOP: vcsa-installer-ash is no longer managed by Ashburn Terraform." >&2
+  echo "It may have been retired automatically after successful ESXi registration." >&2
+  echo "Do not rerun VCSA prepare/deploy against an already installed appliance." >&2
+  echo "Use: bash ashburn/scripts/vcsa.sh inspect" >&2
+  echo "Check: terraform -chdir=ashburn state list; verify PhoenixNAP portal separately." >&2
+  exit 1
+fi
 export INSTALLER_IP
 export VCSA_ISO_SHA256="$(tf_variable vcsa_iso_sha256)"
 export VCSA_ISO_URL="$(tf_variable vcsa_iso_url)"
@@ -70,16 +119,19 @@ if [[ -z "$VCSA_ISO_URL" && -z "$VCSA_ISO_PATH" ]]; then
   echo "NOTE: no ISO source configured; prepare requires media already present on Ubuntu." >&2
 fi
 
-# Isolate host-key trust to this server ID so a recycled IP does not conflict
-# with ~/.ssh/known_hosts. First-contact trust is TOFU, not provider attestation.
-install -d -m 0700 private/ssh
-export ASHBURN_INSTALLER_KNOWN_HOSTS="$root/private/ssh/installer-${installer_id}.known_hosts"
-if [[ ! -e "$ASHBURN_INSTALLER_KNOWN_HOSTS" ]]; then
-  (umask 077; : > "$ASHBURN_INSTALLER_KNOWN_HOSTS")
+# First-use SSH trust is keyed by PhoenixNAP server ID. A retired
+# installer needs no known_hosts file for a read-only ESXi VM inspection.
+if [[ -n "$installer_id" ]]; then
+  install -d -m 0700 private/ssh
+  export ASHBURN_INSTALLER_KNOWN_HOSTS="$root/private/ssh/installer-${installer_id}.known_hosts"
+  if [[ ! -e "$ASHBURN_INSTALLER_KNOWN_HOSTS" ]]; then
+    (umask 077; : > "$ASHBURN_INSTALLER_KNOWN_HOSTS")
+  fi
+  chmod 600 "$ASHBURN_INSTALLER_KNOWN_HOSTS"
+  echo "Installer: ${INSTALLER_IP} (server ${installer_id})"
+else
+  echo "Installer: retired (no managed Ubuntu installer; ESXi inspection only)"
 fi
-chmod 600 "$ASHBURN_INSTALLER_KNOWN_HOSTS"
-
-echo "Installer: ${INSTALLER_IP} (server ${installer_id})"
 echo "ISO source: $([[ -n "$VCSA_ISO_URL" ]] && echo 'configured HTTPS URL' || ([[ -n "$VCSA_ISO_PATH" ]] && echo 'local ISO path' || echo 'not configured'))"
 echo "ISO checksum: loaded from ashburn/terraform.tfvars"
 
