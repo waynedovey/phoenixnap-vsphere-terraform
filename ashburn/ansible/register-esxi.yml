@@ -110,10 +110,11 @@
       changed_when: false
       no_log: true
 
-    - name: Require at least one registered host
+    - name: Require the exact Ashburn ESXi host in vCenter
       ansible.builtin.assert:
-        that: "vcenter_hosts.stdout_lines | length > 0"
-        fail_msg: "No ESXi hosts found after registration. Check vCenter Tasks and Events."
+        that:
+          - "esxi_ip in (vcenter_hosts.stdout_lines | map('regex_replace', '^.*/', '') | list)"
+        fail_msg: "The expected Ashburn ESXi IP was not found in vCenter host inventory. Installer will be retained."
 
     - name: Display registered host inventory paths
       ansible.builtin.debug:
