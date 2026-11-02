@@ -53,6 +53,14 @@
       register: vcenter_inventory
       changed_when: false
       failed_when: false
+      # Firstboot may report success before vpxd/SSO is ready for sessions.
+      # Retry transient failures, but do not repeatedly retry bad credentials.
+      until: >-
+        vcenter_inventory.rc == 0 or
+        (vcenter_inventory.stderr | default('')) is
+        search('(?i)notauthenticated|incorrect user|invalid.login|invalidlogin|cannot complete login|login failed')
+      retries: 6
+      delay: 10
       no_log: true
 
     - name: Diagnose authenticated inventory discovery failure safely
