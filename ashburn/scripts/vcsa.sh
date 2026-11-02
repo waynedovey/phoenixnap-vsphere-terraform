@@ -250,4 +250,15 @@ if [[ "$stage" == deploy ]]; then
   [[ "$ack" == DEPLOY-VCENTER ]] || { echo "Cancelled."; exit 1; }
 fi
 export VCSA_STAGE="$stage"
-ashburn/.venv/bin/ansible-playbook -i 'localhost,' -c local ashburn/ansible/vcsa.yml
+if [[ "$stage" == deploy ]]; then
+  export VCSA_DEPLOY_RUN_ID="$(python3 -c 'import secrets; print(secrets.token_hex(8))')"
+  echo "Showing VMware task progress during deployment (no passwords/log contents)."
+  echo "Firstboot can reach 100% before the installer has fully finalized."
+  python3 ashburn/scripts/vcsa-progress.py \
+    --installer-ip "$INSTALLER_IP" \
+    --known-hosts "$ASHBURN_INSTALLER_KNOWN_HOSTS" \
+    --run-id "$VCSA_DEPLOY_RUN_ID" -- \
+    ashburn/.venv/bin/ansible-playbook -i 'localhost,' -c local ashburn/ansible/vcsa.yml
+else
+  ashburn/.venv/bin/ansible-playbook -i 'localhost,' -c local ashburn/ansible/vcsa.yml
+fi
