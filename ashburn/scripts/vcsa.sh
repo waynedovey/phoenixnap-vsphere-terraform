@@ -89,7 +89,7 @@ if [[ "$installer_count" == 1 ]]; then
     echo "STOP: cannot identify installer SSH IP from managed Terraform state." >&2
     exit 1
   fi
-  [[ "$INSTALLER_IP" =~ ^[0-9]{1,3}(\\.[0-9]{1,3}){3}$ ]] || {
+  [[ "$INSTALLER_IP" =~ ^[0-9]{1,3}([.][0-9]{1,3}){3}$ ]] || {
     echo "STOP: resolved installer IP is invalid." >&2
     exit 1
   }
@@ -196,7 +196,7 @@ fi
 # Previous playbook incorrectly used the public.<VLAN> VMkernel port group.
 # Its generated JSON cannot work with OVF Tool; archive it and regenerate
 # automatically using the dedicated vcsa-public VM network, even on the same host.
-if [[ "$stage" != diagnose && -f private/vcsa-config-ashburn.json ]]; then
+if [[ "$stage" != inspect && "$stage" != diagnose && -f private/vcsa-config-ashburn.json ]]; then
   old_deployment_network="$(jq -r '.new_vcsa.esxi.deployment_network // ""' private/vcsa-config-ashburn.json)"
   if [[ "$old_deployment_network" =~ ^public\.[0-9]+$ ]]; then
     install -d -m 0700 private/archive
