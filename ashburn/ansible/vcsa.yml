@@ -237,12 +237,27 @@
             'VCSA_INSTALLER_DIR': '/mnt/vcsa',
             'VCSA_ESXI_CERT_SHA256': {{ lookup('env', 'VCSA_ESXI_CERT_SHA256') | to_json }},
           })
-          sys.exit(subprocess.run(
-            ['python3', 'vcsa.py', 'precheck', '--template', 'vcsa-config.json'],
-            cwd='/home/ubuntu/vcsa', check=False
-          ).returncode)
+          from pathlib import Path
+          output_file = Path('/home/ubuntu/vcsa/last-precheck.log')
+          # Write private VMware stdout/stderr for diagnosis. Never expose it
+          # through Ansible: output can include credentials or sensitive paths.
+          with output_file.open('w', encoding='utf-8') as log:
+            os.chmod(output_file, 0o600)
+            outcome = subprocess.run(
+              ['python3', 'vcsa.py', 'precheck', '--template', 'vcsa-config.json'],
+              cwd='/home/ubuntu/vcsa', stdout=log, stderr=subprocess.STDOUT,
+              check=False
+            )
+          sys.exit(outcome.returncode)
       changed_when: false
+      register: vmware_precheck
+      failed_when: false
       no_log: true
+
+    - name: Explain precheck failure without disclosing credentials
+      when: stage in ['precheck', 'deploy'] and vmware_precheck.rc != 0
+      ansible.builtin.fail:
+        msg: "VCSA precheck failed (exit code {{ vmware_precheck.rc }}). Run: bash ashburn/scripts/vcsa.sh diagnose. Detailed logs remain private on Ubuntu."
 
     - name: Confirm approvals before deploying a vCenter VM
       when: stage == 'deploy'
