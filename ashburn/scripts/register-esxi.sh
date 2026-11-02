@@ -76,6 +76,16 @@ if [[ ! -x "$repo_root/ashburn/.venv/bin/ansible-playbook" ]]; then
   echo "Missing Ashburn Ansible venv. Run: bash ashburn/scripts/setup-ansible.sh" >&2
   exit 1
 fi
+# Validate both registration and retirement scripts before making changes.
+bash -n "$repo_root/ashburn/scripts/retire-installer.sh" || {
+  echo "STOP: installer retirement script failed Bash syntax validation." >&2
+  exit 1
+}
+"$repo_root/ashburn/.venv/bin/ansible-playbook" -i localhost, -c local \
+  --syntax-check "$repo_root/ashburn/ansible/register-esxi.yml" || {
+    echo "STOP: ESXi registration playbook failed syntax validation." >&2
+    exit 1
+  }
 # The login information is displayed only after Ansible successfully
 # registers and verifies the ESXi host. Never persist passwords or emit them
 # into automated logs by default.
