@@ -266,11 +266,35 @@ if [[ "$stage" == deploy ]]; then
   export VCSA_DEPLOY_RUN_ID="$(python3 -c 'import secrets; print(secrets.token_hex(8))')"
   echo "Showing VMware task progress during deployment (no passwords/log contents)."
   echo "Firstboot can reach 100% before the installer has fully finalized."
-  python3 ashburn/scripts/vcsa-progress.py \
+  # The VMware CLI has occasionally returned nonzero after reporting full
+  # deployment success. Never rerun it automatically: reconcile the exact
+  # current run's private log plus ESXi VM and authenticated vCenter state.
+  if python3 ashburn/scripts/vcsa-progress.py \
     --installer-ip "$INSTALLER_IP" \
     --known-hosts "$ASHBURN_INSTALLER_KNOWN_HOSTS" \
     --run-id "$VCSA_DEPLOY_RUN_ID" -- \
-    ashburn/.venv/bin/ansible-playbook -i 'localhost,' -c local ashburn/ansible/vcsa.yml
+    ashburn/.venv/bin/ansible-playbook -i 'localhost,' -c local ashburn/ansible/vcsa.yml; then
+    echo "VCSA deployment completed (Ansible exit 0)."
+  else
+    deploy_rc=$?
+    echo "VCSA installer exited $deploy_rc. Checking for a completed appliance before declaring failure." >&2
+    echo "Only read-only health checks are retried. The VM will NOT be redeployed." >&2
+    config_path="private/vcsa-config-ashburn.json"
+    if [[ ! -f "$config_path" ]] || ! vcsa_ip="$(jq -er '.new_vcsa.network.ip' "$config_path")"; then
+      echo "No current VCSA configuration to verify. Run vcsa.sh diagnose and inspect." >&2
+      exit "$deploy_rc"
+    fi
+    if python3 ashburn/scripts/vcsa-verify.py \
+      --installer-ip "$INSTALLER_IP" \
+      --vcsa-ip "$vcsa_ip" \
+      --known-hosts "$ASHBURN_INSTALLER_KNOWN_HOSTS" \
+      --run-id "$VCSA_DEPLOY_RUN_ID"; then
+      echo "VCSA installation validated despite a nonzero installer exit. Safe to proceed to host registration."
+    else
+      echo "STOP: VCSA health not conclusively verified. Run vcsa.sh inspect and diagnose." >&2
+      exit "$deploy_rc"
+    fi
+  fi
 else
   ashburn/.venv/bin/ansible-playbook -i 'localhost,' -c local ashburn/ansible/vcsa.yml
 fi
