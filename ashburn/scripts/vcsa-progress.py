@@ -200,7 +200,7 @@ def main():
                 sys.stderr.write("VCSA deployment: completed successfully (Ansible exit 0).\n")
             else:
                 sys.stderr.write(
-                    f"VCSA deployment: Ansible exited {rc}; inspect the private VMware logs.\n"
+                    f"VCSA deployment: Ansible exited {rc}; wrapper will attempt read-only recovery verification.\n"
                 )
         return rc
     finally:
