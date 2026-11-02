@@ -171,22 +171,41 @@ if [[ ! -f "$retired_override" ]]; then
 fi
 
 if [[ ! -f "$retired_override" ]]; then
-  say "Check and, if necessary, configure ESXi time synchronization"
+  say "Check ESXi NTP (up to 40 attempts, 15 seconds apart; ~10 minutes)"
   synced=0
-for attempt in $(seq 1 20); do
-  if ntp_status="$(bash ashburn/scripts/esxi-time.sh check 2>&1)"; then
-    if grep -Eiq '^[[:space:]]*Time Synchronized:[[:space:]]*true[[:space:]]*$' <<<"$ntp_status"; then
-      synced=1
-      break
+  configured_ntp=0
+  ntp_attempts=40
+  ntp_interval=15
+  for ((attempt=1; attempt<=ntp_attempts; attempt++)); do
+    if ntp_status="$(bash ashburn/scripts/esxi-time.sh check 2>&1)"; then
+      # ESXi prints TimeSynchronized (without a space), while older examples
+      # show Time Synchronized. Accept BOTH, and never treat false as success.
+      if grep -Eiq '^[[:space:]]*Time[[:space:]]*Synchronized:[[:space:]]*true[[:space:]]*$' <<<"$ntp_status"; then
+        synced=1
+        echo "ESXi NTP synchronized on check $attempt/$ntp_attempts."
+        break
+      fi
+      if [[ "$configured_ntp" == 0 ]]; then
+        # Avoid resetting ntpd every time build-all is run while it is
+        # converging. Change NTP servers only if not already using our pair.
+        if ! grep -Eiq '^[[:space:]]*Servers:.*0[.]pool[.]ntp[.]org.*1[.]pool[.]ntp[.]org' <<<"$ntp_status"; then
+          say "NTP not synchronized and desired public servers not configured; configuring once"
+          bash ashburn/scripts/esxi-time.sh configure </dev/null
+        else
+          echo "ESXi already uses public NTP servers; allowing time to synchronize (no reset)."
+        fi
+        configured_ntp=1
+      fi
+      echo "[NTP $attempt/$ntp_attempts] TimeSynchronized=false; checking again in ${ntp_interval}s."
+    else
+      echo "[NTP $attempt/$ntp_attempts] ESXi time check unavailable; retrying in ${ntp_interval}s." >&2
     fi
-    if [[ "${configured_ntp:-0}" == 0 ]]; then
-      bash ashburn/scripts/esxi-time.sh configure </dev/null
-      configured_ntp=1
+    if (( attempt < ntp_attempts )); then
+      sleep "$ntp_interval"
     fi
-  fi
-  sleep 15
-done
-[[ "$synced" == 1 ]] || die "ESXi NTP is not synchronized; VCSA install halted."
+  done
+  [[ "$synced" == 1 ]] ||
+    die "ESXi NTP did not synchronize after $ntp_attempts checks. Check UDP 123, DNS and the ESXi NTP service; VCSA installation is blocked. Retry build-all after fixing time."
   export ESXI_NTP_SYNC_CONFIRMED=YES
 else
   say "Existing vCenter: skipping NTP install prerequisite; no new VCSA deployment"
