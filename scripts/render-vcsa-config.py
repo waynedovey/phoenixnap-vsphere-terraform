@@ -41,11 +41,11 @@ def main():
     ap.add_argument("--ntp", default="pool.ntp.org",
                     help="NTP server when --time-source=ntp")
     ap.add_argument("--portgroup", required=True,
-                    help="Existing PhoenixNAP ESXi public.<VLAN> port group")
+                    help="Dedicated VM-only ESXi port group, vcsa-public")
     args = ap.parse_args()
 
-    if not args.portgroup.startswith("public.") or not args.portgroup[7:].isdigit():
-        raise ValueError("Port group must be an existing PhoenixNAP public.<VLAN> network")
+    if args.portgroup != "vcsa-public":
+        raise ValueError("VCSA must use the dedicated VM port group vcsa-public, not a VMkernel management port group")
     if args.time_source == "ntp" and not args.ntp.strip():
         raise ValueError("Supply an NTP server when --time-source=ntp")
 
