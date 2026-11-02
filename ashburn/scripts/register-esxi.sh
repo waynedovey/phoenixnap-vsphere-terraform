@@ -8,7 +8,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/../.." && pwd)"
 cd "$repo_root"
 
-for utility in terraform jq ansible-playbook govc; do
+for utility in terraform jq govc; do
   if ! command -v "$utility" >/dev/null 2>&1; then
     echo "Missing required command: $utility" >&2
     exit 1
@@ -69,4 +69,10 @@ echo "Target ESXi: $ASHBURN_ESXI_IP"
 echo "Desired Datacenter: Datacenter"
 echo "No datastores will be formatted or modified."
 
-ansible-playbook -i localhost, -c local "$repo_root/ashburn/ansible/register-esxi.yml"
+# Same Python/collections used by the VCSA workflow, independent of
+# whichever system Ansible binary happens to be on PATH.
+if [[ ! -x "$repo_root/ashburn/.venv/bin/ansible-playbook" ]]; then
+  echo "Missing Ashburn Ansible venv. Run: bash ashburn/scripts/setup-ansible.sh" >&2
+  exit 1
+fi
+"$repo_root/ashburn/.venv/bin/ansible-playbook" -i localhost, -c local "$repo_root/ashburn/ansible/register-esxi.yml"
