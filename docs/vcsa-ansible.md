@@ -25,7 +25,7 @@ This creates/reuses `ashburn/.venv` with Python 3.14, Ansible Core 2.21, pyVmomi
 
 ## Prepare the ISO and VCSA configuration
 
-After `terraform -chdir=ashburn apply servers.tfplan`, **do not manually export the installer IP or ISO checksum**. The wrapper reads the current installer ID and public IPv4 from Terraform outputs and evaluates the ISO settings from `ashburn/terraform.tfvars`.
+After `terraform -chdir=ashburn apply servers.tfplan`, **do not manually export the installer IP or ISO checksum**. The wrapper reads the current installer ID and resolves the Ubuntu SSH IPv4 from the managed server's `public_ip_addresses` in Terraform state. PhoenixNAP can return a `/31` or two-address range rather than a single IP, so the built-in resolver handles those formats and stops on ambiguity. ISO settings are evaluated from `ashburn/terraform.tfvars`.
 
 Set an authorized ISO location **once** in `ashburn/terraform.tfvars`:
 
