@@ -19,14 +19,18 @@ for cmd in terraform jq python3; do
   command -v "$cmd" >/dev/null || { echo "Missing $cmd" >&2; exit 1; }
 done
 
-# Use the existing Ashburn state. A missing installer means cleanup was done.
-if ! server_id="$(terraform -chdir="$tf" output -raw installer_id)"; then
+# Use JSON output so a null installer ID is handled reliably on repeat runs.
+if ! server_id_json="$(terraform -chdir="$tf" output -json installer_id)"; then
   echo "STOP: unable to read Ashburn installer state. No deletion attempted." >&2
   exit 1
 fi
-if [[ -z "$server_id" || "$server_id" == null ]]; then
+if [[ "$server_id_json" == null ]]; then
   echo "No temporary Ashburn installer in Terraform state; nothing to delete."
   exit 0
+fi
+if ! server_id="$(jq -er 'select(type == "string")' <<<"$server_id_json")"; then
+  echo "STOP: invalid installer state output." >&2
+  exit 1
 fi
 if ! [[ "$server_id" =~ ^[a-f0-9]{24}$ ]]; then
   echo "STOP: unexpected installer server ID; no deletion attempted." >&2
