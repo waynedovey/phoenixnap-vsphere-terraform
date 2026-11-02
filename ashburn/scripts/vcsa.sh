@@ -171,44 +171,64 @@ fi
 export ESXI_ROOT_PASSWORD="$(terraform -chdir=ashburn state pull | jq -er '.resources[] | select(.type == "pnap_server" and .name == "esxi") | .instances[0].attributes.root_password')"
 [[ -n "$ESXI_ROOT_PASSWORD" ]] || { echo "Missing ESXi root password." >&2; exit 1; }
 
-# Read-only inventory inspection with Terraform-provided ESXi credentials.
-if [[ "$stage" == inspect ]]; then
+# govc vm.info returns 0 AND prints nothing when a named VM does not exist.
+# Use the real inventory query for both inspection and duplicate guarding.
+# Any inventory query failure blocks deployment (fail closed).
+find_vcsa_vm() {
+  local inventory
+  if ! inventory="$(govc find / -type m -name vcsa-ash)"; then
+    echo "STOP: failed to query ESXi VM inventory. Do not deploy." >&2
+    return 1
+  fi
+  if [[ -n "$inventory" && "$inventory" == *$'\n'* ]]; then
+    echo "STOP: multiple VMs named vcsa-ash found; inspect ESXi manually." >&2
+    return 1
+  fi
+  printf '%s' "$inventory"
+}
+
+if [[ "$stage" == inspect || "$stage" == deploy ]]; then
   export GOVC_USERNAME=root GOVC_PASSWORD="$ESXI_ROOT_PASSWORD" GOVC_INSECURE=1
-  echo "Inspecting vcsa-ash on ESXi $ASHBURN_ESXI_IP (read-only):"
-  if ! govc vm.info vcsa-ash; then
-    echo "Could not inspect vcsa-ash (it may not exist or ESXi may be unavailable)." >&2
+  if ! vm_path="$(find_vcsa_vm)"; then
     exit 1
   fi
-  echo
-  echo "VCSA VM network adapter:"
-  govc device.info -vm vcsa-ash ethernet-0 || true
 
-  expected_vcsa_ip="$(jq -r '.new_vcsa.network.ip // empty' private/vcsa-config-ashburn.json 2>/dev/null || true)"
-  if [[ "$expected_vcsa_ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
+  if [[ "$stage" == inspect ]]; then
+    echo "Inspecting vcsa-ash on ESXi $ASHBURN_ESXI_IP (read-only):"
+    if [[ -z "$vm_path" ]]; then
+      echo "No vcsa-ash VM found in ESXi inventory. No VM cleanup necessary."
+      echo "VMware precheck can be followed by deployment once all prerequisites are verified."
+      exit 0
+    fi
+    echo "VM found: $vm_path"
+    govc vm.info "$vm_path" || exit 1
     echo
-    echo "VCSA appliance endpoint probes at $expected_vcsa_ip:"
-    for port in 443 5480; do
-      status="$(curl --insecure --silent --output /dev/null --write-out '%{http_code}' \
-        --connect-timeout 3 --max-time 6 "https://$expected_vcsa_ip:$port/" || true)"
-      [[ "$status" =~ ^[1-5][0-9][0-9]$ ]] || status="unreachable"
-      echo "  HTTPS port $port: $status"
-    done
-    echo "Port reachability alone does not prove that Stage 2 has finished."
-  fi
-  echo
-  echo "If this appliance may contain data, check its console and status before any cleanup."
-  exit 0
-fi
+    echo "VCSA VM network adapter:"
+    govc device.info -vm "$vm_path" ethernet-0 || true
 
-# Refuse duplicate VM before asking for VCSA passwords. Ansible repeats this
-# check before installing; never silently destroy or overwrite a VM.
-if [[ "$stage" == deploy ]]; then
-  export GOVC_USERNAME=root GOVC_PASSWORD="$ESXI_ROOT_PASSWORD" GOVC_INSECURE=1
-  if govc vm.info vcsa-ash >/dev/null 2>&1; then
-    echo "STOP: vcsa-ash already exists. Run 'bash ashburn/scripts/vcsa.sh inspect' first." >&2
-    echo "No deployment attempted; existing VM is untouched." >&2
+    expected_vcsa_ip="$(jq -r '.new_vcsa.network.ip // empty' private/vcsa-config-ashburn.json 2>/dev/null || true)"
+    if [[ "$expected_vcsa_ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
+      echo
+      echo "VCSA appliance endpoint probes at $expected_vcsa_ip:"
+      for port in 443 5480; do
+        status="$(curl --insecure --silent --output /dev/null --write-out '%{http_code}' \
+          --connect-timeout 3 --max-time 6 "https://$expected_vcsa_ip:$port/" || true)"
+        [[ "$status" =~ ^[1-5][0-9][0-9]$ ]] || status="unreachable"
+        echo "  HTTPS port $port: $status"
+      done
+      echo "Port reachability alone does not prove that Stage 2 has finished."
+    fi
+    echo
+    echo "Check the existing VM's state before considering cleanup."
+    exit 0
+  fi
+
+  if [[ -n "$vm_path" ]]; then
+    echo "STOP: VM vcsa-ash already exists at $vm_path." >&2
+    echo "Run 'bash ashburn/scripts/vcsa.sh inspect'; nothing was modified." >&2
     exit 1
   fi
+  echo "ESXi VM inventory: vcsa-ash is absent; safe to attempt the approved deployment."
 fi
 
 if [[ "$stage" == precheck || "$stage" == deploy ]]; then
