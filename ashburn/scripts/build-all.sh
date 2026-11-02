@@ -113,6 +113,8 @@ if [[ ! -x ashburn/.venv/bin/ansible-playbook ]]; then
 fi
 
 say "Inspect vCenter appliance VM (never overwrite an existing VM)"
+# An inherited vCenter datacenter scope must not hide the standalone ESXi.
+unset GOVC_DATACENTER GOVC_FOLDER
 export GOVC_URL="$(terraform -chdir=ashburn output -raw esxi_management_url)"
 export GOVC_URL="${GOVC_URL%/}/sdk" GOVC_USERNAME=root GOVC_INSECURE=1
 export GOVC_PASSWORD="$(terraform -chdir=ashburn state pull | jq -er '
