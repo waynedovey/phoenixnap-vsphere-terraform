@@ -114,19 +114,63 @@
       changed_when: false
       no_log: true
 
-    - name: Discover the existing PhoenixNAP public port group
-      ansible.builtin.set_fact:
-        public_portgroup_names: '{{ portgroups.stdout | regex_findall("(?m)^Name: +(public[.][0-9]+) *$") }}'
+    - name: Select dedicated VCSA VM network using current PhoenixNAP public VLAN
+      ansible.builtin.command:
+        argv: [python3, ashburn/scripts/vcsa-network.py]
+        chdir: "{{ root }}"
+        stdin: "{{ portgroups.stdout }}"
+      register: network_plan_result
+      changed_when: false
 
-    - name: Require exactly one existing public port group
+    - name: Record VCSA network plan
+      ansible.builtin.set_fact:
+        vcsa_network: "{{ network_plan_result.stdout | from_json }}"
+
+    - name: Create dedicated VM port group on the existing public VLAN
+      when: vcsa_network.create | bool
+      ansible.builtin.command:
+        argv:
+          - govc
+          - host.portgroup.add
+          - -vswitch
+          - "{{ vcsa_network.vswitch }}"
+          - -vlan
+          - "{{ vcsa_network.vlan_id | string }}"
+          - "{{ vcsa_network.vm_portgroup }}"
+      environment: "{{ govc_env }}"
+
+    - name: Reinspect ESXi port groups after creating VCSA VM network
+      ansible.builtin.command:
+        argv: [govc, host.portgroup.info]
+      environment: "{{ govc_env }}"
+      register: final_portgroups
+      changed_when: false
+      no_log: true
+
+    - name: Verify dedicated VM port group matches the public VLAN and switch
+      ansible.builtin.command:
+        argv: [python3, ashburn/scripts/vcsa-network.py, --require-existing]
+        chdir: "{{ root }}"
+        stdin: "{{ final_portgroups.stdout }}"
+      register: verified_network
+      changed_when: false
+
+    - name: Confirm ESXi exports the dedicated VM port group as a VM network
+      ansible.builtin.command:
+        argv: [govc, find, /, -type, n, -name, vcsa-public]
+      environment: "{{ govc_env }}"
+      register: vm_network_inventory
+      changed_when: false
+
+    - name: Refuse VCSA deployment when OVF network mapping is unavailable
       ansible.builtin.assert:
         that:
-          - public_portgroup_names | length == 1
-        fail_msg: "Cannot uniquely identify public.<VLAN> on ESXi. Check govc host.portgroup.info; no network changes made."
+          - vm_network_inventory.stdout_lines | select('search', '/network/vcsa-public$') | list | length == 1
+        fail_msg: "ESXi does not expose vcsa-public as a VM network. Inspect ESXi VMkernel/VM port groups before retrying the OVF precheck."
 
-    - name: Announce the existing public network to be used by VCSA
+    - name: Announce the VM network and underlying PhoenixNAP VLAN
       ansible.builtin.debug:
-        msg: "Using PhoenixNAP ESXi port group {{ public_portgroup_names[0] }}; no new port group is created."
+        msg: "VCSA VM port group {{ vcsa_network.vm_portgroup }} on {{ vcsa_network.vswitch }} VLAN {{ vcsa_network.vlan_id }} (management remains {{ vcsa_network.management_portgroup }})."
 
     - name: Create ignored private directory on Mac
       ansible.builtin.file:
@@ -147,7 +191,7 @@
           - --template
           - private/embedded_vCSA_on_ESXi.json
           - --portgroup
-          - "{{ public_portgroup_names[0] }}"
+          - "{{ vcsa_network.vm_portgroup }}"
           - --time-source
           - "{{ lookup('env', 'VCSA_TIME_SOURCE') | default('host', true) }}"
           - --ntp
@@ -175,8 +219,8 @@
     - name: Check for stale configuration from another lab
       ansible.builtin.assert:
         that:
-          - config_portgroup.stdout == public_portgroup_names[0]
-        fail_msg: "VCSA JSON targets a different port group. Archive the old private/vcsa-config-ashburn.json and run prepare again."
+          - config_portgroup.stdout == vcsa_network.vm_portgroup
+        fail_msg: "VCSA JSON does not target the dedicated vcsa-public VM port group. Archive the old private/vcsa-config-ashburn.json and run prepare again."
 
     - name: Confirm time source and ESXi synchronization before VMware precheck
       when: stage in ['precheck', 'deploy']
