@@ -6,8 +6,8 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
 stage="${1:-}"
 case "$stage" in
-  prepare|precheck|deploy) ;;
-  *) echo "Usage: bash ashburn/scripts/vcsa.sh prepare|precheck|deploy" >&2; exit 2 ;;
+  prepare|precheck|deploy|diagnose) ;;
+  *) echo "Usage: bash ashburn/scripts/vcsa.sh prepare|precheck|deploy|diagnose" >&2; exit 2 ;;
 esac
 for utility in terraform jq govc ssh scp; do
   command -v "$utility" >/dev/null || { echo "Missing $utility" >&2; exit 1; }
@@ -67,6 +67,46 @@ chmod 600 "$ASHBURN_INSTALLER_KNOWN_HOSTS"
 echo "Installer: ${INSTALLER_IP} (server ${installer_id})"
 echo "ISO source: $([[ -n "$VCSA_ISO_URL" ]] && echo 'configured HTTPS URL' || ([[ -n "$VCSA_ISO_PATH" ]] && echo 'local ISO path' || echo 'not configured'))"
 echo "ISO checksum: loaded from ashburn/terraform.tfvars"
+
+if [[ "$stage" == diagnose ]]; then
+  echo "Inspecting remote installer diagnostics (read-only)."
+  echo "Private logs can contain sensitive data. The summary filters common secrets."
+  ssh -o "UserKnownHostsFile=$ASHBURN_INSTALLER_KNOWN_HOSTS" \
+      -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=25 \
+      "ubuntu@$INSTALLER_IP" 'python3 -' <<'PY'
+from pathlib import Path
+import re
+
+sensitive = re.compile(r'(?i)(?:password|passwd|secret|token|authorization|credential|private.key|api.key)\s*[:=]')
+suspicious = re.compile(r'(?i)(error|failed|failure|invalid|unable|cannot|timeout|certificate|warning|denied|refused|exception|precheck)')
+paths = [Path('/home/ubuntu/vcsa/last-precheck.log')]
+paths += sorted(Path('/tmp').glob('vcsaCliInstaller-*/**/vcsa-cli-installer.log'),
+                key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)[:2]
+seen = set()
+for path in paths:
+    if path in seen or not path.is_file():
+        continue
+    seen.add(path)
+    print('\n===', path, '===')
+    try:
+        lines = path.read_text(errors='replace').splitlines()
+    except (OSError, UnicodeError) as exc:
+        print('Unable to read diagnostic file:', type(exc).__name__)
+        continue
+    matches = [line.strip() for line in lines if suspicious.search(line)]
+    if not matches:
+        print('No distinct errors extracted; inspect this private file directly on Ubuntu.')
+        continue
+    for line in matches[-25:]:
+        if sensitive.search(line):
+            print('[Possible credentials in log line; omitted. Inspect privately on Ubuntu.]')
+        else:
+            print(line[:300])
+if not seen:
+    print('No logs yet. Pull changes, rerun precheck, then run diagnose.')
+PY
+  exit 0
+fi
 
 # A freshly allocated PhoenixNAP server can reuse the old IP address.
 # Archive generated files on new server ID, but never delete user data.
