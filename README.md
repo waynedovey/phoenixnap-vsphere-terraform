@@ -86,7 +86,7 @@ bash ashburn/scripts/vcsa.sh precheck
 # Only after required PhoenixNAP/VMware approvals and successful precheck:
 export PNAP_VCENTER_SUPPORT_CONFIRMED=YES
 export VCSA_DEPLOY_APPROVED=YES
-bash ashburn/scripts/vcsa.sh deploy
+bash ashburn/scripts/vcsa.sh deploy  # Live VMware progress bar + elapsed time
 bash ashburn/scripts/register-esxi.sh
 ```
 
@@ -95,6 +95,10 @@ For ESXi TLS, `vcsa.sh precheck` automatically retrieves and pins the SHA-256 ce
 The port group fix also archives and regenerates any previously generated VCSA JSON incorrectly targeting `public.<VLAN>` (the VMware OVF precheck error was `Invalid target name (public.2)` with no target VM networks). The `precheck` stage creates only the dedicated VM port group when absent; repeated runs validate it without changing it.
 
 SSH uses a private, per-installer-server-ID `known_hosts` file with `StrictHostKeyChecking=accept-new`. This avoids false host-key conflicts when PhoenixNAP reuses an IP, while still rejecting subsequent changes for the same server. **First connection is trust-on-first-use**, so verify the fingerprint through the PhoenixNAP console when stronger host authentication is required. No global SSH known_hosts edits or disabled host-key checks are needed. The wrapper also archives stale VCSA JSON/templates when a new installer ID is detected.
+
+**Deployment progress:** `vcsa.sh deploy` now displays a live, per-task VMware progress bar with elapsed time while the Ansible task is hidden behind `no_log: true`. It polls only sanitized task names/progress from the current installer's log over SSH, keyed by a unique deployment-run marker, so old precheck logs are not mistaken for a new installation. The displayed percentage is **within VMware's current task**, not a guessed overall percentage. After firstboot reaches 100%, the display changes to *Finalizing VMware deployment* until Ansible returns success. Pressing Ctrl-C on the progress display is intentionally ignored to avoid interrupting a partially installed appliance. The progress monitor is optional presentation only; actual success/failure is always determined by Ansible's exit code.
+
+**vCenter registration:** `register-esxi.sh` uses the same Ansible virtual environment as deployment, authenticates against vCenter and discovers datacenters before selecting any datacenter. If authenticated inventory discovery fails, it reports a sanitized explanation without exposing the SSO password. Verify vCenter services are healthy and the SSO credentials are correct before retrying registration; it is not necessary to redeploy VCSA.
 
 **Troubleshooting:** Ansible conceals the password-bearing command output using `no_log`, but `vcsa.sh` now records the VMware precheck's stdout/stderr in mode-0600 `/home/ubuntu/vcsa/last-precheck.log`. Run `bash ashburn/scripts/vcsa.sh diagnose` for a read-only, filtered error summary from that file and recent VMware CLI logs. Diagnose does not ask for VCSA passwords or deploy anything. Inspect the private raw log yourself if the summary omits a sensitive line; don't post raw logs containing credentials.
 
