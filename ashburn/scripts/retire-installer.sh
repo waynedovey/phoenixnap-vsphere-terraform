@@ -147,9 +147,9 @@ PY
 terraform -chdir="$tf" apply -input=false -lock-timeout=30s "$plan_dir/retire.tfplan"
 
 # A successful provider operation must also be reflected in Terraform state.
-remaining="$(terraform -chdir="$tf" output -raw installer_id)"
-if [[ "$remaining" != null && -n "$remaining" ]]; then
-  echo "WARNING: installer still appears in Terraform output; check PhoenixNAP portal." >&2
+# Checking state-list is more reliable than output -raw for a null output.
+if terraform -chdir="$tf" state list | grep -Fxq 'pnap_server.installer[0]'; then
+  echo "WARNING: installer still appears in Terraform state; check PhoenixNAP portal." >&2
   exit 1
 fi
 echo "Installer retired. enable_installer=false saved in ignored ashburn/terraform.tfvars."
