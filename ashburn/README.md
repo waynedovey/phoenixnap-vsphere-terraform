@@ -6,6 +6,8 @@ Use [the top-level quickstart](../README.md) for the shortest **Create → Insta
 
 ## Commands at a glance
 
+For the non-interactive **`bash ashburn/scripts/build-all.sh`** workflow, first create the Git-ignored `private/ashburn-lab-password` (mode `600`). The script stops **before provisioning** if it is missing. See [one-command setup in the root README](../README.md#one-command-automation) for a hidden-input macOS command. This contains the VCSA root/SSO password for a new install, or the **existing SSO password** for an already installed VCSA; it is not the ESXi root password.
+
 **Create a new lab:** first allocate its public `/29` once, then create ESXi and the temporary Ubuntu server.
 
 ```bash
