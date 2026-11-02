@@ -142,7 +142,7 @@ govc host.portgroup.info
 govc datastore.info
 ```
 
-For the new lab, use the ESXi port group named `public.<VLAN>` (the previous one was `public.5`). **Do not create `vcsa-public` on VLAN 3**; that incorrect VLAN caused the previous network outage.
+Use the ESXi **management** port group named `public.<VLAN>` (now `public.2`) only as a VLAN/vSwitch reference. It is a VMkernel port group and cannot host a VCSA VM NIC. Create a **separate VM-only** `vcsa-public` port group on that same vSwitch/VLAN; do not change the management port group. The Ansible wrapper does this automatically. In the prior lab, `vcsa-public` VLAN 3 was wrong because public management was VLAN 5; the current VLAN must always be derived dynamically.
 
 Before VCSA deployment, make sure ESXi's time is synchronized:
 
@@ -184,7 +184,7 @@ VMware's install template for a standalone ESXi host is
 mkdir -p private
 chmod 700 private
 scp ubuntu@"$INSTALLER_IP":/mnt/vcsa/vcsa-cli-installer/templates/install/embedded_vCSA_on_ESXi.json private/embedded_vCSA_on_ESXi.json
-python3 scripts/render-vcsa-config.py --template private/embedded_vCSA_on_ESXi.json --portgroup public.5 --time-source host
+python3 scripts/render-vcsa-config.py --template private/embedded_vCSA_on_ESXi.json --portgroup vcsa-public --time-source host
 jq '{esxi: .new_vcsa.esxi.hostname, portgroup: .new_vcsa.esxi.deployment_network, datastore: .new_vcsa.esxi.datastore, vcsa: .new_vcsa.network.ip, prefix: .new_vcsa.network.prefix, gateway: .new_vcsa.network.gateway, system_name: .new_vcsa.network.system_name}' private/vcsa-config-ashburn.json
 ```
 
