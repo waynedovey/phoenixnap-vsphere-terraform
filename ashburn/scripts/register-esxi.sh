@@ -92,7 +92,7 @@ printf '%s\n' '========================================'
 # For interactive use, allow an explicit reveal after registration. This is
 # the same credential entered above; never discover or invent a password.
 # Showing it on screen risks terminal recording and scrollback exposure.
-if [[ -t 0 && -t 1 ]]; then
+if [[ "${ASHBURN_NONINTERACTIVE:-}" != YES && -t 0 && -t 1 ]]; then
   reveal=''
   read -r -p 'Reveal SSO password on screen? [y/N]: ' reveal || true
   case "$reveal" in
