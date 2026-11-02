@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Safely register the Terraform-managed Ashburn ESXi server in the VCSA inventory.
-# Does not provision, format storage, delete resources, or modify Seattle state.
+# Registers ESXi, then retires ONLY the temporary Ubuntu installer from Ashburn Terraform.
+# Never formats storage, deletes ESXi/VCSA, or modifies Seattle state.
 set -Eeuo pipefail
 umask 077
 
@@ -79,6 +80,17 @@ fi
 # registers and verifies the ESXi host. Never persist passwords or emit them
 # into automated logs by default.
 "$repo_root/ashburn/.venv/bin/ansible-playbook" -i localhost, -c local "$repo_root/ashburn/ansible/register-esxi.yml"
+
+# ESXi registration and its exact host-inventory verification must succeed
+# before deleting the temporary Ubuntu ISO downloader/installer. A saved
+# Terraform plan is strictly checked to remove ONLY this installer server.
+# This is an intentional one-way retirement: no prompt, no ESXi or VCSA deletion.
+printf '\n%s\n' 'ESXi registration verified; retiring temporary PhoenixNAP Ubuntu installer.'
+if ! bash "$repo_root/ashburn/scripts/retire-installer.sh" --yes; then
+  echo "STOP: ESXi is registered, but installer retirement failed or was blocked." >&2
+  echo "Ubuntu may still be billed. Inspect the Terraform plan and PhoenixNAP portal." >&2
+  exit 1
+fi
 
 printf '\n'
 printf '%s\n' '========================================'
