@@ -28,8 +28,12 @@ echo "ESXi: ${esxi_url%/}"
 if [[ "$mode" == configure ]]; then
   echo "This changes ESXi NTP servers to 0.pool.ntp.org and 1.pool.ntp.org."
   echo "Confirm your network permits UDP 123 to these servers."
-  read -r -p "Type CONFIGURE-ESXI-NTP to continue: " approval
-  [[ "$approval" == CONFIGURE-ESXI-NTP ]] || { echo "Cancelled."; exit 1; }
+  if [[ "${ASHBURN_NONINTERACTIVE:-}" == YES ]]; then
+    echo "Non-interactive lab automation: applying configured NTP servers."
+  else
+    read -r -p "Type CONFIGURE-ESXI-NTP to continue: " approval
+    [[ "$approval" == CONFIGURE-ESXI-NTP ]] || { echo "Cancelled."; exit 1; }
+  fi
   govc host.esxcli system ntp set -s 0.pool.ntp.org -s 1.pool.ntp.org -e 1
 fi
 
