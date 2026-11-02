@@ -30,11 +30,13 @@ class InstallerRetirementTests(unittest.TestCase):
         self.assertIn("if ! bash", source)
         self.assertIn('exit 1', source)
 
-    def test_cleanup_persists_disabled_variable_before_apply(self):
+    def test_cleanup_persists_ignored_override_before_apply(self):
         source = RETIRE.read_text()
-        self.assertLess(source.index('python3 - "$tfvars" write'),
+        self.assertIn('zz-installer-retired.auto.tfvars', source)
+        self.assertIn('enable_installer = false', source)
+        self.assertLess(source.index('persist_retirement\n\nterraform'),
                         source.index('terraform -chdir="$tf" apply'))
-        self.assertIn(r"'\g<1>false\g<3>'", source)
+        self.assertNotIn('python3 - "$tfvars" write', source)
         self.assertIn('state list', source)
 
     @unittest.skipUnless(shutil.which("jq"), "jq is not installed")
