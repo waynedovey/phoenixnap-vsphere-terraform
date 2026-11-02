@@ -55,7 +55,10 @@ try:
             task, state, count, detail = matches[-1].groups()
             result["phase"] = task.strip().rstrip(".")
             result["percent"] = min(100, int(count))
-            result["detail"] = (detail or "").strip()[:100]
+            safe_detail = (detail or "").strip()[:100]
+            if re.search(r"(?i)password|passwd|secret|token|credential|private.key|authorization|api.key", safe_detail):
+                safe_detail = "(sensitive VMware message omitted)"
+            result["detail"] = safe_detail
             if state == "FAILED":
                 result["phase"] = "VMware task failed"
             elif state == "SUCCEEDED" and result["percent"] == 100 and (
@@ -97,7 +100,10 @@ def remote_progress(ip, known_hosts, run_id):
 
 def render(info, elapsed, tty, tick):
     phase = re.sub(r"[^a-zA-Z0-9 .()/,_-]", "", str(info.get("phase", "")))[:52]
-    detail = re.sub(r"[^a-zA-Z0-9 .()/,_:-]", "", str(info.get("detail", "")))[:75]
+    detail = str(info.get("detail", ""))[:75]
+    if re.search(r"(?i)password|passwd|secret|token|credential|authorization|api.key", detail):
+        detail = "(sensitive VMware message omitted)"
+    detail = re.sub(r"[^a-zA-Z0-9 .()/,_:-]", "", detail)
     pct = info.get("percent")
     mins, seconds = divmod(int(elapsed), 60)
     if type(pct) is int and 0 <= pct <= 100:
