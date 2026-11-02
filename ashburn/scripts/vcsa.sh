@@ -26,14 +26,23 @@ esxi_id="$(terraform -chdir=ashburn output -raw esxi_id)"
 [[ "$installer_id" =~ ^[0-9a-f]{24}$ && "$esxi_id" =~ ^[0-9a-f]{24}$ ]] || {
   echo "Expected current Ashburn installer and ESXi IDs in Terraform state." >&2; exit 1;
 }
-export INSTALLER_IP="$(terraform -chdir=ashburn output -json installer_public_ip_addresses |
-  jq -er '
-    if type != "array" then error("Expected Terraform installer IPv4 array")
-    else [ .[] | select(type == "string" and test("^[0-9]{1,3}(\\.[0-9]{1,3}){3}$")) ]
-      | if length == 1 then .[0]
-        else error("Expected exactly one IPv4 address; inspect the installer in PhoenixNAP") end
-    end'
-)"
+# PhoenixNAP's public_ip_addresses can be a *range*, not the SSH endpoint.
+# Use its dedicated primary_ip_address attribute from the current state.
+# Read the state directly so this works without a terraform apply just to refresh outputs.
+if ! INSTALLER_IP="$(terraform -chdir=ashburn state pull | jq -er '
+  [.resources[]
+   | select(.type == "pnap_server" and .name == "installer")
+   | .instances[]
+   | .attributes.primary_ip_address
+   | select(type == "string" and test("^[0-9]{1,3}(\\.[0-9]{1,3}){3}$"))]
+  | if length == 1 then .[0] else error("Missing a unique PhoenixNAP primary_ip_address in installer state") end
+')"; then
+  echo "STOP: cannot identify installer primary IPv4 from Terraform state." >&2
+  echo "Inspect: terraform -chdir=ashburn state show 'pnap_server.installer[0]'" >&2
+  exit 1
+fi
+[[ -n "$INSTALLER_IP" ]] || { echo "STOP: installer IP is blank." >&2; exit 1; }
+export INSTALLER_IP
 export VCSA_ISO_SHA256="$(tf_variable vcsa_iso_sha256)"
 export VCSA_ISO_URL="$(tf_variable vcsa_iso_url)"
 export VCSA_ISO_PATH="$(tf_variable vcsa_iso_local_path)"
