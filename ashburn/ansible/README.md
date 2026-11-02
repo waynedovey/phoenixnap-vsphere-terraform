@@ -14,4 +14,4 @@ The **VCSA** playbook executes on the Mac and uses SSH/SCP for Ubuntu 20.04, avo
 
 See [installation prerequisites, SHA verification, approvals and troubleshooting](../../docs/vcsa-ansible.md). The [top-level README](../../README.md) has the shortest create/install/destroy commands.
 
-**Safety:** `register-esxi.sh` runs idempotently, registers a standalone host in `/Datacenter/host`, and does not format disks, deploy VMs or modify Terraform resources. VCSA deployment itself requires explicit approval and confirmation.
+**Safety:** `register-esxi.sh` runs idempotently, registers a standalone host in `/Datacenter/host`, and does not format disks, deploy VMs or modify Terraform resources. On successful registration it prints the vCenter web login URL and SSO username, and offers an optional terminal-only password reveal (hidden by default). The password is the same SSO password supplied at the beginning; it is never written to a new tracked file. VCSA deployment itself requires explicit approval and confirmation.
