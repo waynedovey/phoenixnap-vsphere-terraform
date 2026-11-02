@@ -72,8 +72,8 @@ Proceed only after the output reports **Time Synchronized: true**. The new Ansib
 bash ashburn/scripts/setup-ansible.sh
 bash ashburn/scripts/vcsa.sh prepare
 
-# Verify the ESXi TLS certificate fingerprint out of band (see detailed guide):
-export VCSA_ESXI_CERT_SHA256="VERIFIED_ESXI_CERT_SHA256"
+# The ESXi TLS SHA-256 pin is retrieved, saved and exported automatically
+# by vcsa.sh; no VCSA_ESXI_CERT_SHA256 export is needed.
 export ESXI_NTP_SYNC_CONFIRMED=YES
 bash ashburn/scripts/vcsa.sh precheck
 
@@ -83,6 +83,8 @@ export VCSA_DEPLOY_APPROVED=YES
 bash ashburn/scripts/vcsa.sh deploy
 bash ashburn/scripts/register-esxi.sh
 ```
+
+For ESXi TLS, `vcsa.sh precheck` automatically retrieves and pins the SHA-256 certificate fingerprint in `private/certs/esxi-<SERVER_ID>.sha256`, keyed by the current PhoenixNAP ESXi server ID. Later runs reject a changed certificate for the same ID. **First-use pinning is trust-on-first-use (TOFU), not independent identity verification**; for higher assurance compare the displayed fingerprint using a trusted PhoenixNAP management channel. The Ubuntu installer independently rechecks that same pin before invoking VMware's CLI.
 
 SSH uses a private, per-installer-server-ID `known_hosts` file with `StrictHostKeyChecking=accept-new`. This avoids false host-key conflicts when PhoenixNAP reuses an IP, while still rejecting subsequent changes for the same server. **First connection is trust-on-first-use**, so verify the fingerprint through the PhoenixNAP console when stronger host authentication is required. No global SSH known_hosts edits or disabled host-key checks are needed. The wrapper also archives stale VCSA JSON/templates when a new installer ID is detected.
 
