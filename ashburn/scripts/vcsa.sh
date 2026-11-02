@@ -23,6 +23,13 @@ if [[ "$stage" == prepare || "$stage" == precheck || "$stage" == deploy ]]; then
     exit 1
   fi
 fi
+# Fail before installation if the recovery verifier has invalid Python syntax.
+if [[ "$stage" == deploy ]]; then
+  if ! python3 -c 'import ast,pathlib; ast.parse(pathlib.Path("ashburn/scripts/vcsa-verify.py").read_text(encoding="utf-8"))'; then
+    echo "STOP: VCSA recovery verifier has a Python syntax error." >&2
+    exit 1
+  fi
+fi
 # Read one authoritative source of truth: the current Ashburn state and tfvars.
 # Terraform console evaluates HCL, rather than treating tfvars as an ad-hoc text file.
 tf_variable() {
