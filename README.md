@@ -92,7 +92,7 @@ export VCSA_DEPLOY_APPROVED=YES
 bash ashburn/scripts/vcsa.sh deploy
 ```
 
-The deployment command shows **live VMware task progress**. IP discovery, ISO verification and ESXi network setup are automated.
+The deployment command shows **live VMware task progress**. If VMware returns a non-zero exit code after finishing, it retries **read-only health verification** before deciding whether the install succeeded; it never automatically redeploys an existing VM. IP discovery, ISO verification and ESXi network setup are automated.
 
 ## 4. Register ESXi in vCenter
 
