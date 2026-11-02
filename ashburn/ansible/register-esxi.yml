@@ -17,7 +17,8 @@
       GOVC_USERNAME: "{{ vcenter_user }}"
       GOVC_PASSWORD: "{{ vcenter_password }}"
       GOVC_INSECURE: "1"
-      GOVC_DATACENTER: "Datacenter"
+      # Datacenter may not exist yet. Do not set GOVC_DATACENTER while
+      # discovering/creating root inventory objects.
 
   tasks:
     - name: Require all connection details and passwords
@@ -44,13 +45,30 @@
         fail_msg: "Target is not a vCenter API. Verify the Ashburn VCSA IP."
       no_log: true
 
-    - name: Discover existing Datacenters
+    - name: Discover Datacenters via authenticated vCenter inventory API
       ansible.builtin.command:
-        argv: [govc, ls, /]
+        argv: [govc, find, /, -type, d]
       environment: "{{ vcenter_env }}"
       register: vcenter_inventory
       changed_when: false
+      failed_when: false
       no_log: true
+
+    - name: Diagnose authenticated inventory discovery failure safely
+      when: vcenter_inventory.rc != 0
+      ansible.builtin.fail:
+        msg: >-
+          Authenticated vCenter inventory discovery failed (govc exit code
+          {{ vcenter_inventory.rc }}).
+          {{
+            'SSO authentication rejected. Verify administrator@vsphere.local password and account state.'
+            if (vcenter_inventory.stderr | default('')) is search('(?i)notauthenticated|incorrect user|invalid.login|invalidlogin|cannot complete login|login failed')
+            else
+            'Service or connectivity issue detected. Verify vCenter SSO/vpxd readiness and network.'
+            if (vcenter_inventory.stderr | default('')) is search('(?i)connection refused|timed out|timeout|503|service unavailable|connection reset')
+            else
+            'Check vCenter SSO credentials, vpxd readiness and user permissions. Raw command output remains hidden.'
+          }}
 
     - name: Create Datacenter if absent
       ansible.builtin.command:
