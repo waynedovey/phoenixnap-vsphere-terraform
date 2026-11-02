@@ -9,14 +9,14 @@ Automate **ESXi 8 + vCenter Server 8** on PhoenixNAP bare metal in Ashburn using
 
 ## One-command automation
 
-\`bash ashburn/scripts/build-all.sh\` runs the **previously approved** Ashburn build: Terraform provisioning, ESXi time checks, VCSA installation, ESXi registration and guarded retirement of the temporary Ubuntu installer. It is **non-interactive**, so configure its prerequisites once before running it.
+`bash ashburn/scripts/build-all.sh` runs the **previously approved** Ashburn build: Terraform provisioning, ESXi time checks, VCSA installation, ESXi registration and guarded retirement of the temporary Ubuntu installer. It is **non-interactive**, so configure its prerequisites once before running it.
 
 ### First-time setup on macOS
 
-1. Configure PhoenixNAP credentials in \`~/.pnap/config.yaml\` and the approved infrastructure, costs and ISO settings in \`ashburn/terraform.tfvars\`. Keep \`enable_installer = true\` in that file.
+1. Configure PhoenixNAP credentials in `~/.pnap/config.yaml` and the approved infrastructure, costs and ISO settings in `ashburn/terraform.tfvars`. Keep `enable_installer = true` in that file.
 2. Create the required local password file **from the repository root**, using the command below. Input is hidden and is not entered in your shell history.
 
-\`\`\`bash
+```bash
 python3 - <<'PY'
 import getpass
 import os
@@ -36,31 +36,31 @@ with os.fdopen(fd, "w") as output:
     output.write(password + "\n")
 print("Created private/ashburn-lab-password with mode 600")
 PY
-\`\`\`
+```
 
-This password is used for **both the new VCSA appliance root account and the \`administrator@vsphere.local\` SSO account** on a fresh build. **For an already-installed vCenter, enter its existing SSO password instead** so automatic ESXi registration can authenticate. It is **not** the ESXi root password; that comes from PhoenixNAP and is read from Terraform state. The file must be nonempty, at least eight characters, and have permissions \`600\` (or \`400\`). It lives under Git-ignored \`private/\`; **never commit it or paste its contents into logs or chat**.
+This password is used for **both the new VCSA appliance root account and the `administrator@vsphere.local` SSO account** on a fresh build. **For an already-installed vCenter, enter its existing SSO password instead** so automatic ESXi registration can authenticate. It is **not** the ESXi root password; that comes from PhoenixNAP and is read from Terraform state. The file must be nonempty, at least eight characters, and have permissions `600` (or `400`). It lives under Git-ignored `private/`; **never commit it or paste its contents into logs or chat**.
 
 3. Verify the file exists and has secure permissions without printing the password:
 
-\`\`\`bash
+```bash
 stat -f '%Sp %N' private/ashburn-lab-password
-\`\`\`
+```
 
-Expected permission prefix: \`-rw-------\`.
+Expected permission prefix: `-rw-------`.
 
 ### Run the build
 
-\`\`\`bash
+```bash
 # Only after actual PhoenixNAP approval for the vCenter workload:
 export PNAP_VCENTER_SUPPORT_CONFIRMED=YES
 bash ashburn/scripts/build-all.sh
-\`\`\`
+```
 
-If you see \`STOP: Missing private/ashburn-lab-password\`, the password setup above has not been completed; **the script stops before provisioning**. Other missing configuration or approvals also stop the script rather than granting approval automatically.
+If you see `STOP: Missing private/ashburn-lab-password`, the password setup above has not been completed; **the script stops before provisioning**. Other missing configuration or approvals also stop the script rather than granting approval automatically.
 
-**Automatic installer cleanup:** After ESXi registration is verified, the script validates a Terraform plan that deletes only \`vcsa-installer-ash\`, then retires it. Your original \`ashburn/terraform.tfvars\` remains at \`enable_installer = true\`. Instead, an ignored \`ashburn/zz-installer-retired.auto.tfvars\` automatically sets the effective value to \`false\` so later Terraform plans do not recreate the installer. ESXi, \`vcsa-ash\`, \`datastore1\` and the dedicated public \`/29\` are preserved. Verify retirement in Terraform state and the PhoenixNAP portal.
+**Automatic installer cleanup:** After ESXi registration is verified, the script validates a Terraform plan that deletes only `vcsa-installer-ash`, then retires it. Your original `ashburn/terraform.tfvars` remains at `enable_installer = true`. Instead, an ignored `ashburn/zz-installer-retired.auto.tfvars` automatically sets the effective value to `false` so later Terraform plans do not recreate the installer. ESXi, `vcsa-ash`, `datastore1` and the dedicated public `/29` are preserved. Verify retirement in Terraform state and the PhoenixNAP portal.
 
-**Already have a working vCenter?** You do not need \`build-all.sh\` or a password file to finish cleanup interactively. Run \`bash ashburn/scripts/register-esxi.sh\`, enter your existing SSO password at its prompt, and it will verify registration and safely retire any remaining Ubuntu installer. Do not rerun \`vcsa.sh prepare\` or \`deploy\` against an already-installed appliance.
+**Already have a working vCenter?** You do not need `build-all.sh` or a password file to finish cleanup interactively. Run `bash ashburn/scripts/register-esxi.sh`, enter your existing SSO password at its prompt, and it will verify registration and safely retire any remaining Ubuntu installer. Do not rerun `vcsa.sh prepare` or `deploy` against an already-installed appliance.
 
 For manual step-by-step operation, use the sections below.
 
