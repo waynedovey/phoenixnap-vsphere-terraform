@@ -94,6 +94,8 @@ bash ashburn/scripts/vcsa.sh deploy
 
 The deployment command shows **live VMware task progress**. If VMware returns a non-zero exit code after finishing, it retries **read-only health verification** before deciding whether the install succeeded; it never automatically redeploys an existing VM. IP discovery, ISO verification and ESXi network setup are automated.
 
+**Already deployed?** After `register-esxi.sh` retires the Ubuntu installer, don't rerun `vcsa.sh prepare`, `precheck` or `deploy`. They require the temporary installer. Use `bash ashburn/scripts/vcsa.sh inspect` to check the existing VCSA; it works after retirement. Check `terraform -chdir=ashburn state list` for `pnap_server.installer[0]` if you are unsure whether Ubuntu was deleted.
+
 ## 4. Register ESXi in vCenter
 
 ```bash
