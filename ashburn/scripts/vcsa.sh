@@ -6,8 +6,8 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
 stage="${1:-}"
 case "$stage" in
-  prepare|precheck|deploy|diagnose) ;;
-  *) echo "Usage: bash ashburn/scripts/vcsa.sh prepare|precheck|deploy|diagnose" >&2; exit 2 ;;
+  prepare|precheck|deploy|diagnose|inspect) ;;
+  *) echo "Usage: bash ashburn/scripts/vcsa.sh prepare|precheck|deploy|diagnose|inspect" >&2; exit 2 ;;
 esac
 for utility in terraform jq govc ssh scp; do
   command -v "$utility" >/dev/null || { echo "Missing $utility" >&2; exit 1; }
@@ -139,7 +139,7 @@ if [[ "$stage" != diagnose && -f private/vcsa-config-ashburn.json ]]; then
   fi
 fi
 
-if [[ "$stage" != prepare && "${ESXI_NTP_SYNC_CONFIRMED:-}" != YES ]]; then
+if [[ ( "$stage" == precheck || "$stage" == deploy ) && "${ESXI_NTP_SYNC_CONFIRMED:-}" != YES ]]; then
   echo "STOP: verify ESXi reports 'Time Synchronized: true' using esxcli system ntp get." >&2
   echo "Then set ESXI_NTP_SYNC_CONFIRMED=YES for this lab." >&2
   exit 1
@@ -156,7 +156,7 @@ export GOVC_URL="${esxi_url%/}/sdk"
 # First run is TOFU, NOT independent identity verification. Subsequent
 # certificate changes for the SAME server ID are fatal. A newly provisioned
 # ESXi has a new server ID, hence a separate pin. No manual export required.
-if [[ "$stage" != prepare ]]; then
+if [[ "$stage" == precheck || "$stage" == deploy ]]; then
   if ! VCSA_ESXI_CERT_SHA256="$(python3 ashburn/scripts/pin-esxi-cert.py \
     --url "$esxi_url" \
     --server-id "$esxi_id" \
@@ -171,7 +171,47 @@ fi
 export ESXI_ROOT_PASSWORD="$(terraform -chdir=ashburn state pull | jq -er '.resources[] | select(.type == "pnap_server" and .name == "esxi") | .instances[0].attributes.root_password')"
 [[ -n "$ESXI_ROOT_PASSWORD" ]] || { echo "Missing ESXi root password." >&2; exit 1; }
 
-if [[ "$stage" != prepare ]]; then
+# Read-only inventory inspection with Terraform-provided ESXi credentials.
+if [[ "$stage" == inspect ]]; then
+  export GOVC_USERNAME=root GOVC_PASSWORD="$ESXI_ROOT_PASSWORD" GOVC_INSECURE=1
+  echo "Inspecting vcsa-ash on ESXi $ASHBURN_ESXI_IP (read-only):"
+  if ! govc vm.info vcsa-ash; then
+    echo "Could not inspect vcsa-ash (it may not exist or ESXi may be unavailable)." >&2
+    exit 1
+  fi
+  echo
+  echo "VCSA VM network adapter:"
+  govc device.info -vm vcsa-ash ethernet-0 || true
+
+  expected_vcsa_ip="$(jq -r '.new_vcsa.network.ip // empty' private/vcsa-config-ashburn.json 2>/dev/null || true)"
+  if [[ "$expected_vcsa_ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
+    echo
+    echo "VCSA appliance endpoint probes at $expected_vcsa_ip:"
+    for port in 443 5480; do
+      status="$(curl --insecure --silent --output /dev/null --write-out '%{http_code}' \
+        --connect-timeout 3 --max-time 6 "https://$expected_vcsa_ip:$port/" || true)"
+      [[ "$status" =~ ^[1-5][0-9][0-9]$ ]] || status="unreachable"
+      echo "  HTTPS port $port: $status"
+    done
+    echo "Port reachability alone does not prove that Stage 2 has finished."
+  fi
+  echo
+  echo "If this appliance may contain data, check its console and status before any cleanup."
+  exit 0
+fi
+
+# Refuse duplicate VM before asking for VCSA passwords. Ansible repeats this
+# check before installing; never silently destroy or overwrite a VM.
+if [[ "$stage" == deploy ]]; then
+  export GOVC_USERNAME=root GOVC_PASSWORD="$ESXI_ROOT_PASSWORD" GOVC_INSECURE=1
+  if govc vm.info vcsa-ash >/dev/null 2>&1; then
+    echo "STOP: vcsa-ash already exists. Run 'bash ashburn/scripts/vcsa.sh inspect' first." >&2
+    echo "No deployment attempted; existing VM is untouched." >&2
+    exit 1
+  fi
+fi
+
+if [[ "$stage" == precheck || "$stage" == deploy ]]; then
   if [[ -z "${VCSA_ROOT_PASSWORD:-}" ]]; then
     read -rsp 'New VCSA root password: ' VCSA_ROOT_PASSWORD; echo
     export VCSA_ROOT_PASSWORD
