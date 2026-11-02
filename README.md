@@ -46,7 +46,7 @@ Inspect each plan **before apply** (expect **2 adds** for the servers). Stop if 
 
 ## Install vCenter (Ansible)
 
-**No manual IP or checksum exports.** `vcsa.sh` discovers the temporary Ubuntu server's **primary IPv4** directly from the current PhoenixNAP server resource in Terraform state (not from a public IP range), and reads `vcsa_iso_sha256`, `vcsa_iso_url`, and optional `vcsa_iso_local_path` from `ashburn/terraform.tfvars` via Terraform console. The script fails immediately if the primary IP is missing.
+**No manual IP or checksum exports.** `vcsa.sh` resolves the Ubuntu SSH IPv4 from the current PhoenixNAP server's public IP allocation in Terraform state. Its resolver handles a single IPv4 address, `/31`, or a two-address range, and rejects ambiguous allocations instead of proceeding with an empty IP. It reads `vcsa_iso_sha256`, `vcsa_iso_url` and optional `vcsa_iso_local_path` from `ashburn/terraform.tfvars` via Terraform console.
 
 Set **one authorized ISO source** in `ashburn/terraform.tfvars`:
 ```hcl
