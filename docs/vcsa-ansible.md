@@ -84,6 +84,10 @@ bash ashburn/scripts/vcsa.sh deploy
 bash ashburn/scripts/register-esxi.sh
 ```
 
+**Live installation progress:** `bash ashburn/scripts/vcsa.sh deploy` now runs Ansible under a Mac-side progress monitor. While VMware CLI deploys, the monitor polls only task progress lines from the currently active remote installer log, scoped by a random run ID. It displays the VMware task's own percentage (for example, firstboot 92%) and elapsed time, with an indeterminate *Finalizing VMware deployment* phase after firstboot reaches 100%. It does **not** reveal raw installer logs or passwords, and it never reports overall success until the Ansible process exits successfully. This is presentation only; installation behavior, safety approvals and Ansible `no_log: true` are unchanged. New installs only: do not rerun a completed deployment to test the bar.
+
+**Registering ESXi:** `bash ashburn/scripts/register-esxi.sh` now launches `ashburn/.venv/bin/ansible-playbook`, clears any inherited default datacenter, then performs an authenticated `govc find / -type d` inventory query before deciding whether to create `Datacenter`. Previously, prematurely setting `GOVC_DATACENTER=Datacenter` could break discovery before the datacenter existed, and `govc about` alone did not prove that vCenter SSO login worked. Discovery failures now report a safe credential/service-readiness summary rather than a fully censored Ansible failure. Confirm the existing SSO password and the appliance's vpxd/SSO readiness when retrying.
+
 `deploy` requires you to type `DEPLOY-VCENTER`. It also refuses to deploy when a `vcsa-ash` VM already exists, protecting against duplicate deployment after a failed run. The remote VMware CLI performs the installation. Ansible keeps `no_log: true` for tasks containing credentials, so failure details do not appear in its task result. A new `diagnose` stage provides a read-only, filtered summary:
 
 ```bash
