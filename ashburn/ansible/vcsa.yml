@@ -50,12 +50,22 @@
       failed_when: false
 
     - name: Stop if cloud-init is still running or Ubuntu is unreachable
-      # Ubuntu 20.04 can return rc=1 on a completed bootstrap error;
-      # newer cloud-init uses rc=2. Accept rc=1 only with terminal status.
+      # Ubuntu 20.04 may use rc=1 on a completed bootstrap error;
+      # newer cloud-init uses rc=2. Only allow rc=1 for terminal status.
       when: >-
         cloud_init_wait.rc not in [0, 2] and
         not (cloud_init_wait.rc == 1 and
-             (cloud_init_wait.stdout | default('')) is search('(?m)^status: (done|error)\\s*
+             ('status: error' in (cloud_init_wait.stdout | default('')) or
+              'status: done' in (cloud_init_wait.stdout | default(''))))
+      ansible.builtin.fail:
+        msg: >-
+          Ubuntu cloud-init did not finish safely (exit {{ cloud_init_wait.rc }}).
+          Check sudo cloud-init status and
+          /var/log/vcsa-installer-bootstrap.log on the installer.
+          No competing VCSA ISO download was started.
+
+    - name: Explain recovery if cloud-init completed with an error
+      when: cloud_init_wait.rc in [1, 2]
       ansible.builtin.debug:
         msg: >-
           Ubuntu cloud-init finished with errors. Checking for an existing ISO
