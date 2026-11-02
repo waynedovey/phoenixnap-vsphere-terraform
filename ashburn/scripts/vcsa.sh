@@ -246,8 +246,12 @@ if [[ "$stage" == deploy ]]; then
   if [[ "${PNAP_VCENTER_SUPPORT_CONFIRMED:-}" != YES || "${VCSA_DEPLOY_APPROVED:-}" != YES ]]; then
     echo "Required approvals: PNAP_VCENTER_SUPPORT_CONFIRMED=YES and VCSA_DEPLOY_APPROVED=YES" >&2; exit 1
   fi
-  read -r -p "Deploy VCSA on ESXi $ASHBURN_ESXI_IP? Type DEPLOY-VCENTER: " ack
-  [[ "$ack" == DEPLOY-VCENTER ]] || { echo "Cancelled."; exit 1; }
+  if [[ "${ASHBURN_NONINTERACTIVE:-}" == YES ]]; then
+    echo "Non-interactive VCSA deployment approved by the lab automation."
+  else
+    read -r -p "Deploy VCSA on ESXi $ASHBURN_ESXI_IP? Type DEPLOY-VCENTER: " ack
+    [[ "$ack" == DEPLOY-VCENTER ]] || { echo "Cancelled."; exit 1; }
+  fi
 fi
 export VCSA_STAGE="$stage"
 if [[ "$stage" == deploy ]]; then
