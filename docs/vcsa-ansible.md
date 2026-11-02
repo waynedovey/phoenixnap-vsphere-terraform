@@ -56,25 +56,22 @@ The generated `private/vcsa-config-ashburn.json` is not overwritten automaticall
 
 ## Precheck, install, register
 
-The freshly installed ESXi host has a self-signed TLS certificate. VMware's CLI normally prompts to accept its fingerprint, which fails with an EOF when run unattended through Ansible. Before precheck, **independently verify** the ESXi TLS certificate fingerprint against the host's certificate shown in a trusted ESXi management session. To collect the certificate as seen from the Ubuntu installer:
+ESXi has a self-signed TLS certificate. Rather than requiring a manual `export VCSA_ESXI_CERT_SHA256=...`, the Mac wrapper automatically:
+
+1. Reads the ESXi management HTTPS address and current PhoenixNAP server ID from Ashburn Terraform.
+2. Fetches the ESXi TLS certificate and calculates SHA-256.
+3. Saves it in ignored `private/certs/esxi-<SERVER_ID>.sha256` on first use, then verifies it is unchanged on subsequent runs for that same ID.
+4. Exports `VCSA_ESXI_CERT_SHA256` **internally** to Ansible; the Ubuntu installer separately checks its own TLS connection against the same fingerprint before using VMware's non-interactive `--no-esx-ssl-verify` option.
+
+**Important security limitation:** This is *trust on first use* (TOFU). It prevents a silent certificate change after initial pinning, but it **does not independently authenticate** the ESXi host on the first connection. If you need stronger assurance, compare the printed SHA-256 with the ESXi certificate through a trusted PhoenixNAP management console before proceeding. Never automatically overwrite an existing pin after a mismatch.
 
 ```bash
-# Use the installer IP printed by 'bash ashburn/scripts/vcsa.sh prepare'.
-# Substitute your freshly provisioned ESXi management IP for 192.240.198.138.
-ssh ubuntu@INSTALLER_IPV4 \
-  'echo | openssl s_client -connect 192.240.198.138:443 -servername 192.240.198.138 2>/dev/null | openssl x509 -noout -fingerprint -sha256'
-```
-
-After checking the fingerprint out of band, supply it in the current Mac session (colons optional):
-
-```bash
-export VCSA_ESXI_CERT_SHA256="PASTE_VERIFIED_SHA256_FINGERPRINT"
 # Only after ESXi NTP reports "Time Synchronized: true":
 export ESXI_NTP_SYNC_CONFIRMED=YES
 bash ashburn/scripts/vcsa.sh precheck
 ```
 
-The Python installer wrapper checks the live TLS certificate **from Ubuntu** against this pin before enabling VMware's narrowly scoped `--no-esx-ssl-verify` option to avoid the interactive certificate prompt. **Never supply a fingerprint without independently checking the ESXi identity.** This option skips VMware's own certificate validation for ESXi; the external pinned check compensates for it. It does not skip certificate checks for every connection.
+There is **no certificate-fingerprint export to set**. A newly provisioned ESXi has a new server ID and therefore gets a new pin. The private pin files are excluded from Git.
 
 The wrapper prompts for new VCSA root and SSO passwords; it reads the **ESXi root password** from the current Ashburn Terraform state, not from a tracked file. For deployment, only after actual approval:
 
