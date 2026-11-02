@@ -126,6 +126,19 @@ if [[ "$stage" == prepare ]]; then
     chmod 600 "$build_id_file"
   fi
 fi
+# Previous playbook incorrectly used the public.<VLAN> VMkernel port group.
+# Its generated JSON cannot work with OVF Tool; archive it and regenerate
+# automatically using the dedicated vcsa-public VM network, even on the same host.
+if [[ "$stage" != diagnose && -f private/vcsa-config-ashburn.json ]]; then
+  old_deployment_network="$(jq -r '.new_vcsa.esxi.deployment_network // ""' private/vcsa-config-ashburn.json)"
+  if [[ "$old_deployment_network" =~ ^public\.[0-9]+$ ]]; then
+    install -d -m 0700 private/archive
+    stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    mv private/vcsa-config-ashburn.json "private/archive/vcsa-config-ashburn.json.vm-kernel-${stamp}.${installer_id}"
+    echo "Archived VCSA JSON using VMkernel-only port group ${old_deployment_network}; Ansible will regenerate for vcsa-public."
+  fi
+fi
+
 if [[ "$stage" != prepare && "${ESXI_NTP_SYNC_CONFIRMED:-}" != YES ]]; then
   echo "STOP: verify ESXi reports 'Time Synchronized: true' using esxcli system ntp get." >&2
   echo "Then set ESXI_NTP_SYNC_CONFIRMED=YES for this lab." >&2
