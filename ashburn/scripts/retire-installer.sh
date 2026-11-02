@@ -19,41 +19,60 @@ for cmd in terraform jq python3; do
   command -v "$cmd" >/dev/null || { echo "Missing $cmd" >&2; exit 1; }
 done
 
-# Use JSON output so a null installer ID is handled reliably on repeat runs.
-if ! server_id_json="$(terraform -chdir="$tf" output -json installer_id)"; then
-  echo "STOP: unable to read Ashburn installer state. No deletion attempted." >&2
+# Read the managed resource instances from Terraform state, not root outputs.
+# An existing workspace can have valid resources but missing/stale output values.
+# Never run terraform apply merely to refresh outputs before verifying deletion.
+if ! state_json="$(terraform -chdir="$tf" state pull)"; then
+  echo "STOP: cannot read Ashburn Terraform state; no deletion attempted." >&2
   exit 1
 fi
-if [[ "$server_id_json" == null ]]; then
+
+# Require exactly one real ESXi resource so an empty/wrong state cannot pass.
+if ! esxi_id="$(jq -er '
+  [.resources[]? | select(.mode == "managed" and .type == "pnap_server" and .name == "esxi")
+   | .instances[]?.attributes.id | select(type == "string")]
+  | if length == 1 then .[0] else empty end
+' <<<"$state_json")"; then
+  echo "STOP: expected one managed Ashburn ESXi server in Terraform state." >&2
+  exit 1
+fi
+[[ "$esxi_id" =~ ^[a-f0-9]{24}$ ]] || {
+  echo "STOP: ESXi state identifier is invalid; no deletion attempted." >&2
+  exit 1
+}
+
+# Resolve ONLY the temporary installer with the expected resource name.
+# Absent is an idempotent no-op; duplicate or unexpected instances fail closed.
+if ! installer_records="$(jq -ce '
+  [.resources[]? | select(.mode == "managed" and .type == "pnap_server" and .name == "installer")
+   | .instances[]?.attributes
+   | {id, hostname, location, delete_ip_blocks}]
+' <<<"$state_json")"; then
+  echo "STOP: cannot identify temporary installer in Terraform state." >&2
+  exit 1
+fi
+installer_count="$(jq -r 'length' <<<"$installer_records")"
+if [[ "$installer_count" == 0 ]]; then
   echo "No temporary Ashburn installer in Terraform state; nothing to delete."
   exit 0
 fi
-if ! server_id="$(jq -er 'select(type == "string")' <<<"$server_id_json")"; then
-  echo "STOP: invalid installer state output." >&2
+if [[ "$installer_count" != 1 ]]; then
+  echo "STOP: expected exactly one installer resource, got $installer_count." >&2
   exit 1
 fi
-if ! [[ "$server_id" =~ ^[a-f0-9]{24}$ ]]; then
+if ! server_id="$(jq -er '
+  .[0] | select(.hostname == "vcsa-installer-ash"
+                and .location == "ASH" and .delete_ip_blocks == true)
+  | .id | select(type == "string")
+' <<<"$installer_records")"; then
+  echo "STOP: installer identity or networking differs from expected Ashburn server." >&2
+  exit 1
+fi
+[[ "$server_id" =~ ^[a-f0-9]{24}$ ]] || {
   echo "STOP: unexpected installer server ID; no deletion attempted." >&2
   exit 1
-fi
-
-esxi_id="$(terraform -chdir="$tf" output -raw esxi_id)"
-[[ "$esxi_id" =~ ^[a-f0-9]{24}$ ]] || {
-  echo "STOP: ESXi is absent from Ashburn state; no deletion attempted." >&2
-  exit 1
 }
-
-# Fail closed if Terraform is not tracking exactly the expected ASH Ubuntu BMC.
-terraform -chdir="$tf" state pull | jq -e --arg id "$server_id" '
-  [.resources[] | select(.mode == "managed" and .type == "pnap_server" and .name == "installer")
-   | .instances[]?.attributes
-   | select(.id == $id and .hostname == "vcsa-installer-ash"
-            and .location == "ASH" and .delete_ip_blocks == true)
-  ] | length == 1
-' >/dev/null || {
-  echo "STOP: server identity or installer network settings differ from expected state." >&2
-  exit 1
-}
+echo "Found temporary installer from Terraform managed state: $server_id"
 
 tfvars="$root/ashburn/terraform.tfvars"
 [[ -f "$tfvars" && ! -L "$tfvars" ]] || {
