@@ -11,8 +11,25 @@ installer_type         = "s2.c1.small"
 maximum_hourly_usd     = 1.00
 management_allowed_cidrs = ["0.0.0.0/0"]
 
-# Supply an authorized ISO URL and an independently vendor-verified SHA-256
-# to enable cloud-init download; otherwise use VCSA_ISO_PATH in the Ansible stage.
-vcsa_iso_url        = ""
-vcsa_iso_sha256     = ""
-vcsa_iso_local_path = ""  # Alternative: authorized ISO file on your Mac
+# VCSA ISO source. All settings are read automatically from this tfvars file
+# by ashburn/scripts/vcsa.sh; no shell exports of the IP or SHA are required.
+#
+# Use an authorized ISO location. The previously used third-party mirror and
+# its observed SHA-256 are not independently verified against the publisher.
+# Downloading a matching file proves integrity against the supplied checksum,
+# not that the ISO is genuine.
+#
+# Option A: HTTPS source, downloaded directly onto the Ubuntu installer.
+vcsa_iso_url        = ""  # e.g. https://YOUR_AUTHORIZED_SOURCE/VMware-VCSA-all-8.0.3-24022515.iso
+vcsa_iso_sha256     = ""  # 64 hexadecimal characters verified with a trusted source
+vcsa_iso_local_path = ""
+#
+# Option B: no URL, Mac-hosted ISO upload:
+#   vcsa_iso_url        = ""
+#   vcsa_iso_local_path = "/Users/youruser/Downloads/VMware-VCSA-all-8.0.3-24022515.iso"
+#   vcsa_iso_sha256     = "THE_SAME_INDEPENDENTLY_VERIFIED_SHA256"
+#
+# Do NOT set vcsa_iso_local_path to /opt/vcsa/media/...: that is the
+# AUTOMATIC REMOTE DESTINATION on Ubuntu, not a local file on your Mac.
+# When URL is used, leave vcsa_iso_local_path = "".
+
