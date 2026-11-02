@@ -38,6 +38,34 @@
         argv: "{{ ssh_args + [target, 'true'] }}"
       changed_when: false
 
+    # The VCSA ISO is ~11 GB. SSH becomes available well before Ubuntu's
+    # cloud-init finishes downloading/mounting it. A file-existence check made
+    # during this window launched a SECOND curl to the SAME .partial path.
+    # Wait for cloud-init to terminate before considering the fallback upload.
+    - name: Wait for Ubuntu cloud-init ISO bootstrap to finish
+      ansible.builtin.command:
+        argv: "{{ ssh_args + [target, 'sudo timeout 1800 cloud-init status --wait'] }}"
+      register: cloud_init_wait
+      changed_when: false
+      failed_when: false
+
+    - name: Stop if cloud-init has not finished or Ubuntu is unreachable
+      when: cloud_init_wait.rc not in [0, 2]
+      ansible.builtin.fail:
+        msg: >-
+          Ubuntu cloud-init did not finish safely (exit {{ cloud_init_wait.rc }}).
+          Check sudo cloud-init status and
+          /var/log/vcsa-installer-bootstrap.log on the installer.
+          No competing VCSA ISO download was started.
+
+    - name: Explain recovery if cloud-init completed with an error
+      when: cloud_init_wait.rc == 2
+      ansible.builtin.debug:
+        msg: >-
+          Ubuntu cloud-init finished with errors. Checking for an existing ISO
+          before attempting the verified Ansible fallback download.
+          Review /var/log/vcsa-installer-bootstrap.log if the fallback fails.
+
     - name: Check whether cloud-init already downloaded the ISO
       ansible.builtin.command:
         argv: "{{ ssh_args + [target, 'test -f ' + remote_iso] }}"
@@ -59,11 +87,30 @@
           install -d -m 0755 /opt/vcsa/media
           tmp_path="${iso_path}.partial"
           trap 'rm -f "$tmp_path"' EXIT
-          curl --fail --location --retry 4 --retry-delay 5 --connect-timeout 30 --output "$tmp_path" "$iso_url"
-          printf '%s  %s\n' "$iso_sha" "$tmp_path" | sha256sum --check --status
+          if ! curl --fail --location --retry 4 --retry-delay 5 --connect-timeout 30 --output "$tmp_path" "$iso_url"; then
+            echo "ISO download from configured HTTPS source failed." >&2
+            exit 20
+          fi
+          if ! printf '%s  %s\n' "$iso_sha" "$tmp_path" | sha256sum --check --status; then
+            echo "Downloaded ISO checksum does not match the configured digest." >&2
+            exit 21
+          fi
           mv "$tmp_path" "$iso_path"
           trap - EXIT
+      register: iso_download_result
+      failed_when: false
       no_log: true
+
+    - name: Explain ISO fallback failure without exposing the URL or log contents
+      when: existing_iso.rc != 0 and iso_url | length > 0 and iso_download_result.rc != 0
+      ansible.builtin.fail:
+        msg: >-
+          VCSA ISO fallback failed:
+          {{ 'download/source/network error' if iso_download_result.rc == 20
+          else 'ISO SHA-256 checksum mismatch' if iso_download_result.rc == 21
+          else 'remote bootstrap/permission/storage error (exit ' ~ iso_download_result.rc ~ ')' }}.
+          Inspect /var/log/vcsa-installer-bootstrap.log and disk space on Ubuntu.
+          Nothing was deployed.
 
     - name: Upload authorized local ISO if cloud-init did not download it
       when: existing_iso.rc != 0 and iso_url | length == 0
