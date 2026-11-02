@@ -21,7 +21,7 @@ def ipv4(value):
     try:
         address = ipaddress.ip_address(value)
         return address if isinstance(address, ipaddress.IPv4Address) else None
-    except ValueError:
+    except (ValueError, TypeError):
         return None
 
 
@@ -39,8 +39,11 @@ def ip_from_assignment(entry):
             network = ipaddress.ip_network(entry, strict=False)
         except ValueError as exc:
             fail(f"Unexpected public IP assignment format: {exc}")
-        if isinstance(network, ipaddress.IPv4Network) and network.prefixlen == 31:
-            return network.broadcast_address
+        if isinstance(network, ipaddress.IPv4Network):
+            if network.prefixlen == 31:
+                return network.broadcast_address
+            if network.prefixlen == 32:
+                return network.network_address
         fail("Only a single IPv4 or an unambiguous /31 allocation is supported")
 
     # Other versions present the /31 as "start - end".
