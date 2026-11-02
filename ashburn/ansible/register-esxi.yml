@@ -17,8 +17,9 @@
       GOVC_USERNAME: "{{ vcenter_user }}"
       GOVC_PASSWORD: "{{ vcenter_password }}"
       GOVC_INSECURE: "1"
-      # Datacenter may not exist yet. Do not set GOVC_DATACENTER while
-      # discovering/creating root inventory objects.
+      # Explicit empty value overrides a stale GOVC_DATACENTER on the Mac.
+      # The desired Datacenter may not exist yet.
+      GOVC_DATACENTER: ""
 
   tasks:
     - name: Require all connection details and passwords
