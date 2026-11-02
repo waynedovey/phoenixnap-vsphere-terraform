@@ -56,6 +56,25 @@ chmod 600 "$ASHBURN_INSTALLER_KNOWN_HOSTS"
 echo "Installer: ${INSTALLER_IP} (server ${installer_id})"
 echo "ISO source: $([[ -n "$VCSA_ISO_URL" ]] && echo 'configured HTTPS URL' || ([[ -n "$VCSA_ISO_PATH" ]] && echo 'local ISO path' || echo 'not configured'))"
 echo "ISO checksum: loaded from ashburn/terraform.tfvars"
+
+# A freshly allocated PhoenixNAP server can reuse the old IP address.
+# Archive generated files on new server ID, but never delete user data.
+if [[ "$stage" == prepare ]]; then
+  install -d -m 0700 private private/archive
+  build_id_file="private/ashburn-last-installer-id"
+  last_installer_id="$(cat "$build_id_file" 2>/dev/null || true)"
+  if [[ "$last_installer_id" != "$installer_id" ]]; then
+    stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    for file in private/vcsa-config-ashburn.json private/embedded_vCSA_on_ESXi.json; do
+      if [[ -f "$file" ]]; then
+        mv "$file" "private/archive/$(basename "$file").${stamp}.${installer_id}"
+        echo "Archived stale VCSA configuration: $file"
+      fi
+    done
+    printf '%s\n' "$installer_id" > "$build_id_file"
+    chmod 600 "$build_id_file"
+  fi
+fi
 if [[ "$stage" != prepare ]]; then
   : "${VCSA_ESXI_CERT_SHA256:?Set VCSA_ESXI_CERT_SHA256 to the independently verified ESXi certificate SHA-256}"
   [[ "${VCSA_ESXI_CERT_SHA256//:/}" =~ ^[a-fA-F0-9]{64}$ ]] || { echo "Invalid ESXi certificate fingerprint." >&2; exit 1; }
