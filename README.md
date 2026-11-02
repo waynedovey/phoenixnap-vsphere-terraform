@@ -7,6 +7,18 @@ Automate **ESXi 8 + vCenter Server 8** on PhoenixNAP bare metal in Ashburn using
 
 > Run all commands from the repository root. Use `terraform -chdir=ashburn`; the root Terraform stack is legacy Seattle.
 
+## One-command automation
+
+For a **previously approved** lab, the non-interactive entry point runs Terraform provisioning, ESXi NTP checks, VCSA installation with progress, and ESXi registration:
+
+```bash
+bash ashburn/scripts/build-all.sh
+```
+
+Before running, configure `~/.pnap/config.yaml`, `ashburn/terraform.tfvars` (enable both servers and record real provider/cost/retirement approvals), and a mode-`600` **git-ignored** `private/ashburn-lab-password` containing the VCSA root/SSO password. The shell environment must already have `PNAP_VCENTER_SUPPORT_CONFIRMED=YES` following actual provider approval. Missing approvals cause the script to **stop without prompting**, not silently self-authorize. **Never commit the password.** PhoenixNAP generates the ESXi root password separately; it is retrieved from Terraform state rather than changed. The script won't delete or replace existing Terraform resources or overwrite `vcsa-ash`.
+
+For manual step-by-step operation, use the sections below.
+
 ## 1. Prepare
 
 Configure PhoenixNAP credentials in `~/.pnap/config.yaml` (`clientId` and `clientSecret`). Keep credentials out of Git.
