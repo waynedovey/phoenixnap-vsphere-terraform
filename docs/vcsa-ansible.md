@@ -5,7 +5,7 @@ The command sequence is on the [main README](../README.md). These are the prereq
 ## What gets installed
 
 - **PhoenixNAP/Terraform** deploys ESXi 8 on bare metal plus a temporary Ubuntu 20.04 server.
-- **Ansible `prepare`** checks the ISO on Ubuntu, or copies one from your Mac if cloud-init did not download it; verifies its **SHA-256**; mounts it read-only; discovers the existing `public.<VLAN>` port group without changing ESXi networking; and generates private VCSA JSON using the **current Terraform IPs**.
+- **Ansible `prepare`** checks the ISO on Ubuntu, or copies one from your Mac if cloud-init did not download it; verifies its **SHA-256**; mounts it read-only; discovers the VLAN/switch of the existing `public.<VLAN>` VMkernel management port group and creates a separate, idempotent `vcsa-public` **VM-only** port group on that same VLAN without changing ESXi management networking; and generates private VCSA JSON using the **current Terraform IPs**.
 - **Ansible `precheck`** runs the VMware VCSA CLI precheck remotely.
 - **Ansible `deploy`** re-runs precheck and, after approvals and an explicit confirmation, installs the VCSA VM on ESXi.
 - **Ansible `register-esxi.sh`** adds ESXi into vCenter's `Datacenter` inventory.
@@ -43,7 +43,9 @@ Alternatively, set `vcsa_iso_url = ""` and `vcsa_iso_local_path = "/absolute/pat
 
 The wrapper archives existing VCSA configuration and ISO template when it detects a new installer server ID. If an incomplete or incorrect ISO already exists remotely, the checksum verification deliberately fails rather than trusting it.
 
-Check that PhoenixNAP has an ESXi port group named `public.<VLAN>` (for the previous lab it was `public.5`). Ansible now **uses the existing public port group directly**. It does not create `vcsa-public` or assume VLAN 3.
+Check that PhoenixNAP has an ESXi management port group named `public.<VLAN>` (this Ashburn lab uses `public.2`). That port group is attached to a VMkernel network adapter and **cannot be selected by OVF Tool for VMs**. Ansible now discovers its VLAN and vSwitch and automatically creates/validates the dedicated VM-only port group `vcsa-public` with the **same VLAN**. It never changes `public.<VLAN>`, its VMkernel adapter, the public VLAN, or the physical uplinks.
+
+This fixes `OVF Tool: Error: Invalid target name (public.2) specified in net mapping. ... Target networks:` — the VMkernel network existed, but no usable VM network did. VMware requires separate port groups on a standard vSwitch. Broadcom KB 417038 and KB 418471 document the distinction.
 
 ```bash
 bash ashburn/scripts/vcsa.sh prepare
@@ -52,7 +54,7 @@ jq '{network: .new_vcsa.esxi.deployment_network, ip: .new_vcsa.network.ip, tools
 
 By default, `time_tools_sync` is true and no guest NTP server is specified; VCSA receives time from the **synchronized ESXi host**. If you have confirmed working guest NTP on UDP/123 and prefer direct NTP, set `VCSA_TIME_SOURCE=ntp` and `VCSA_NTP_SERVER=<reachable NTP address>` **before prepare**. Do not set both NTP and Tools sync.
 
-The generated `private/vcsa-config-ashburn.json` is not overwritten automatically. **After weekend teardown**, archive the old JSON and ISO template before running prepare on a new host. Ansible rejects stale port-group references. Confirm that the new VCSA IP is unused and reachable; never reuse old allocations without validating them.
+The generated `private/vcsa-config-ashburn.json` is not overwritten automatically, **except** the wrapper now detects an old generated configuration incorrectly referencing `public.<VLAN>` and archives it automatically for regeneration to `vcsa-public`. **After weekend teardown**, the wrapper also archives generated files when the installer server ID changes. Ansible rejects stale port-group references. Confirm that the new VCSA IP is unused and reachable; never reuse old allocations without validating them.
 
 ## Precheck, install, register
 
@@ -96,7 +98,7 @@ The exact VM name and previous deployment state must be inspected before any man
 
 - **Ubuntu SSH fails:** verify the installer ID and IP shown by `vcsa.sh`. The per-ID host key file avoids recycled-IP mismatches, but first-use fingerprints still require out-of-band verification if security requires it. Do not disable host key checking or delete `~/.ssh/known_hosts`.
 - **ISO validation fails:** confirm legitimate source, the independently verified digest, and `/var/log/vcsa-installer-bootstrap.log` on Ubuntu. An empty checksum in Terraform makes cloud-init skip download.
-- **VCSA connectivity fails:** compare the detected `public.<VLAN>` port group, the new `/29`, DNS, gateway, and the VCSA guest IP. The old hardcoded `vcsa-public` VLAN 3 was incorrect: public traffic used VLAN 5.
+- **VCSA connectivity fails:** compare the dedicated `vcsa-public` VM port group (same VLAN as `public.<VLAN>` VMkernel management), the current `/29`, DNS, gateway, and the VCSA guest IP. Never attach VCSA directly to the management VMkernel port group, even though it appears in `govc host.portgroup.info`.
 - **NTP/firstboot fails:** confirm `esxcli system ntp get` reports `Time Synchronized: true`; the new single-host default uses VMware Tools host-time sync. If using guest NTP, independently test DNS and UDP/123 from the VCSA network. Don't simply rerun deploy into an existing failed VM.
 - **Existing private JSON points to old IP:** archive it and regenerate from current Terraform outputs. Never put passwords directly in this JSON.
 - **Ansible cannot register host:** confirm VCSA is healthy; use `source ashburn/.venv/bin/activate` to run compatible VMware modules.
